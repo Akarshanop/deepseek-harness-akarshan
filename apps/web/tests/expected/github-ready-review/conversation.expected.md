@@ -9,6 +9,7 @@
 ---
 
 - banner:
+  - button "Change session color"
   - navigation "Session hierarchy": Review deepseek-ai/deepseek-harness#314
   - text: Standard mode
   - button "More actions"
@@ -33,3 +34,4 @@
 - button "Select model, current github-webhook-review-test/reply": github-webhook-review-test/reply
 - button "Send message" [disabled]
 - button "1 turns 1 steps"
+- button "Open a session side by side"

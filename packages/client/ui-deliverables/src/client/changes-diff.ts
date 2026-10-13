@@ -1,7 +1,7 @@
 /** Cache of the file comparisons the Host serves for listed changed files, read once per comparison and again after a failure. */
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { changesDiffUrl, isChangesDiff, type ChangesDiff } from '../changes.ts'
-import { HostReadStore } from './host-read-store.ts'
+import { HostReadStore, jsonReadPolicy } from './host-read-store.ts'
 
 /**
  * A comparison, `'missing'` once the Host no longer serves it, `'error'` for
@@ -12,17 +12,7 @@ export type ChangesDiffState = ChangesDiff | 'missing' | 'error' | 'loading'
 /** One browser plugin's comparison reads; a failed read is the one state a later request replaces. */
 export class ChangesDiffStore extends HostReadStore<ChangesDiffState> {
   constructor() {
-    super({
-      loading: 'loading',
-      failed: 'error',
-      retryable: state => state === 'error',
-      decode: async (response) => {
-        if (response.status === 404) return 'missing'
-        if (!response.ok) return 'error'
-        const value: unknown = await response.json()
-        return isChangesDiff(value) ? value : 'error'
-      },
-    })
+    super(jsonReadPolicy(isChangesDiff))
   }
 
   /**

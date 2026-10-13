@@ -22,6 +22,8 @@ export interface ReferencedSessionData {
   cwd: string | null
   capturedThroughSeq: OptionalSessionSeq
   conversation: ReferencedConversationItem[]
+  /** Model-written summary standing in for `conversation`; present only for a `#` reference. */
+  summary?: string
 }
 
 /** Retention facts stored beside the durable context. */
@@ -141,6 +143,34 @@ export function retainReferencedSession(
       omittedMessages,
       omittedBytes,
       truncated: omittedMessages > 0 || omittedBytes > 0,
+    },
+  }
+}
+
+/**
+ * Turn one retained projection into the rendered source of a `#` reference: the model-written
+ * summary replaces every message, and the full captured projection stays available for spilling.
+ * @param retained - the projection the summary was written from.
+ * @param summary - the summary text.
+ * @returns the preview data and retention facts describing the summary as omitting every message.
+ * Chat reads the durable record to tell a summary from a quoted preview by `retainedMessages: 0` beside
+ * `omittedMessages > 0`; {@link retainReferencedSession} never produces that pair, because it always keeps the newest message.
+ */
+export function summarizedProjection(
+  retained: { data: ReferencedSessionData; fullData: ReferencedSessionData; stats: ReferenceRetentionStats },
+  summary: string,
+): { data: ReferencedSessionData; fullData: ReferencedSessionData; stats: ReferenceRetentionStats } {
+  const full = retained.fullData.conversation
+  return {
+    data: { ...retained.data, conversation: [], summary },
+    fullData: retained.fullData,
+    stats: {
+      compacted: retained.stats.compacted,
+      originalMessages: full.length,
+      retainedMessages: 0,
+      omittedMessages: full.length,
+      omittedBytes: full.reduce((sum, item) => sum + Buffer.byteLength(item.text, 'utf8'), 0),
+      truncated: true,
     },
   }
 }

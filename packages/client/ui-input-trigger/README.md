@@ -1,5 +1,5 @@
 ---
-description: "Input trigger pipeline for the Web GUI: / and @ detection under the caret, the grouped candidate menu, and pick routing to registered sources; for users and maintainers of slash commands and references."
+description: "Input trigger pipeline for the Web GUI: /, @, and # detection under the caret, the grouped candidate menu, and pick routing to registered sources; for users and maintainers of slash commands and references."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-When users type `/` or `@` at the caret in the Web GUI, this package opens a grouped menu for slash commands, file references, and session references. It supports keyboard and pointer selection, including drill-down choices and launchers that open a single candidate group over the current selection. A pick either invokes a command flow or inserts a reference for the consuming input surface to handle. The package affects browser presentation only; it does not assemble or send model requests.
+When users type `/`, `@`, or `#` at the caret in the Web GUI, this package opens a grouped menu for slash commands, file references, and session references (`#` for summarized sessions). It supports keyboard and pointer selection, including drill-down choices and launchers that open a single candidate group over the current selection. A pick either invokes a command flow or inserts a reference for the consuming input surface to handle. The package affects browser presentation only; it does not assemble or send model requests.
 
 ## Table of Contents
 
@@ -26,6 +26,10 @@ When users type `/` or `@` at the caret in the Web GUI, this package opens a gro
 ## Use this package
 
 Mount this plugin alongside `ui-conversation`; the menu then appears in the input overlay when the user types a trigger under the caret. Grouped candidates render under title rows, or under the section headings a source attaches to its own rows; a pick routes to the source, and the consuming surface applies the result — a slash command opens its popup or executes, a reference inserts its inline token. Menu icons and navigation chevrons use the `--dsw-alias-menu-icon` color. A row shows its icon, its title (the candidate `label`, or the `name` when no label is given), the `name` as a trailing alias when the label is not the name in another letter case, and the description right-aligned; a query matches either the name or the label.
+
+### The `#` trigger
+
+`#` opens a menu for the sources registered on it, only at the draft start or after whitespace. A hash glued to text or punctuation — an anchor, a tag, an issue number, a color, a URL fragment — never opens one, and a menu with no matching row closes by itself, so `#12` stays ordinary text unless a session matches. `#` stays live while a command is claimed, like `@`, and the frozen tier suppresses it with the other triggers. A `#` source inserts atomic chips: it names its own codec, and the pipeline ignores any lexicon it declares because it has no typed text token to decorate.
 
 ### Keyboard and mouse
 

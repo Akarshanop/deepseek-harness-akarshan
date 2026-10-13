@@ -843,6 +843,7 @@ describe('session reference discovery and preparation', () => {
       sameWorkspace: true,
       createdAt: 20,
       mention: formatSessionReferenceMention({ sessionId: SessionId('source]'), label: 'source]' }),
+      compactMention: formatSessionReferenceMention({ sessionId: SessionId('source]'), label: 'source]', compact: true }),
     }])
 
     vi.spyOn(ctx.sessionReferenceResolver, 'listCandidates').mockResolvedValueOnce([{
@@ -855,6 +856,7 @@ describe('session reference discovery and preparation', () => {
       fakeAgent(target), '', new AbortController().signal,
     )).resolves.toEqual([expect.objectContaining({
       mention: formatSessionReferenceMention({ sessionId: SessionId('fallback'), label: 'Fallback title' }),
+      compactMention: formatSessionReferenceMention({ sessionId: SessionId('fallback'), label: 'Fallback title', compact: true }),
     })])
   })
 

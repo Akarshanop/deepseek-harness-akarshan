@@ -6,6 +6,14 @@ export const MAX_REFERENCES = 3
 export const DEFAULT_CANDIDATE_LIMIT = 50
 /** Minimum automatic UTF-8 budget for one rendered reference JSON object. */
 export const DEFAULT_MAX_REFERENCE_BYTES = 65_536
+/** Largest delay a timer accepts; a longer deadline would fire at once. */
+export const MAX_TIMER_DELAY_MS = 2_147_483_647
+/** Default fraction of the model context window one summarization request may read from a source. */
+export const DEFAULT_COMPACT_CONTEXT_FRACTION = 0.5
+/** Default output-token cap of one summarization request, covering any reasoning the route performs. */
+export const DEFAULT_COMPACT_MAX_TOKENS = 4096
+/** Default milliseconds one summarization request may take. */
+export const DEFAULT_COMPACT_TIMEOUT_MS = 120_000
 
 /** Session-reference service configuration. */
 export interface Config {
@@ -17,6 +25,15 @@ export interface Config {
   maxReferenceBytes?: number
   /** Fraction of the model context window per source, estimated at four bytes per token; between zero and one. */
   referenceContextFraction?: number
+  /**
+   * Fraction of the model context window, at four bytes per token with a 64 KiB floor, that the
+   * summarization request for one `#` reference may read from its source; between zero and one.
+   */
+  compactContextFraction?: number
+  /** Output-token cap of one summarization request, covering any reasoning the route performs. */
+  compactMaxTokens?: number
+  /** Milliseconds one summarization request may take before the message's preparation fails. */
+  compactTimeoutMs?: number
 }
 
 /** Stable failure codes exposed to host adapters. */
@@ -28,6 +45,7 @@ export type SessionReferenceErrorCode =
   | 'SESSION_REFERENCE_READ_FAILED'
   | 'SESSION_REFERENCE_BUDGET_EXCEEDED'
   | 'SESSION_REFERENCE_CANCELLED'
+  | 'SESSION_REFERENCE_COMPACT_FAILED'
 
 /** Typed session-reference failure suitable for host protocol error mapping. */
 export class SessionReferenceError extends Error {

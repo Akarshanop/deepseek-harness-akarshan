@@ -348,8 +348,13 @@ export interface ConversationSessionInjected {
 
 /** Business callbacks injected into the strict Session header. */
 export interface ConversationSessionHeaderInjected {
-  /** Package-owned View roster source bound only for the Conversation header. */
-  readonly hooks: { readonly conversationViews: ObservableSnapshot<readonly ViewTab[]> }
+  /** Package-owned View roster and Session color sources bound only for the Conversation header. */
+  readonly hooks: {
+    readonly conversationViews: ObservableSnapshot<readonly ViewTab[]>
+    readonly sessionColors: ObservableSnapshot<Readonly<Record<string, string>>>
+  }
+  /** Replace this Session's identity color with a `#rrggbb` value. */
+  setSessionColor: (color: string) => void
   /** Select a Session through the Session Controller. */
   open: (sessionId: SessionId) => void
   /** Select and activate one registered Conversation View. */

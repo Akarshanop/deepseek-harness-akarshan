@@ -8,6 +8,8 @@ import type {
 } from '../contract/slots.ts'
 import { resolveActiveView } from '../view-selection.ts'
 import { DefaultConversationViews } from './DefaultConversationViews.tsx'
+import { SessionColorDot } from './SessionColorDot.tsx'
+import { sessionColorProperty } from '../session-colors.ts'
 import css from './ConversationRoot.module.css'
 
 /** Full props composed from the strict session body contract. */
@@ -56,9 +58,10 @@ function equalBreadcrumbs(left: readonly Breadcrumb[], right: readonly Breadcrum
  * @returns Session navigation controls, with title and tabs after conversation starts.
  */
 export function ConversationSessionHeader({
-  sessionId, hideChrome, useSessions, useConversationViews, useStore,
-  renderSlot, open, selectView, t,
+  sessionId, hideChrome, useSessions, useConversationViews, useSessionColors, useStore,
+  renderSlot, open, selectView, setSessionColor, t,
 }: ConversationSessionHeaderProps) {
+  const color = useSessionColors(colors => colors[sessionId])
   const tabs = useConversationViews(value => value)
   const selectedId = useStore(s => s.view)
   const active = resolveActiveView(tabs, selectedId)
@@ -69,7 +72,23 @@ export function ConversationSessionHeader({
       <div className={css.titleRow}>
         {!hideChrome && (
           <>
+            <div
+              className={css.colorBar}
+              style={{ background: `var(${sessionColorProperty(sessionId)}, transparent)` }}
+              data-session-color-bar=""
+              aria-hidden
+            />
             <div className={css.titleCluster}>
+              <SessionColorDot
+                sessionId={sessionId}
+                color={color}
+                onChange={setSessionColor}
+                labels={{
+                  change: t('color.change'),
+                  custom: t('color.custom'),
+                  option: swatch => t('color.option', { color: swatch }),
+                }}
+              />
               <nav className={css.crumbs} aria-label={t('session.hierarchy')}>
                 {ancestry.map((summary, index) => {
                   const last = index === ancestry.length - 1

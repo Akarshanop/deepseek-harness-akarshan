@@ -1,23 +1,45 @@
 .root {
   position: relative;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* The row of panes scrolls sideways; its slider stays visible along the bottom edge. */
+.scroller {
   display: flex;
   flex-direction: row;
   height: 100%;
-  min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
 }
 
-/* Panes share the width equally but never shrink below a usable chat column;
-   a narrow window scrolls the row instead of squeezing a chat out of view.
-   Each pane has the root's definite height so the Conversation's sticky
-   composer stays inside the visible area. */
+.scroller::-webkit-scrollbar {
+  height: 14px;
+}
+
+.scroller::-webkit-scrollbar-track {
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.scroller::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-scrollbar-bg-l1);
+  background-clip: content-box;
+}
+
+/* Every pane is a third of the panel (never narrower than a usable chat column), so one or two
+   panes grow to fill it and four or more keep the three-pane width and scroll. Each pane has the
+   scroller's definite height so the Conversation's sticky composer stays inside the visible area. */
 .pane {
   position: relative;
-  flex: 1 1 0;
-  min-width: 320px;
+  flex: 1 0 max(320px, calc(100% / 3));
+  min-width: 0;
   height: 100%;
   overflow: hidden;
+  /* Contain the Conversation's own z-indexes so the pane controls stay on top. */
+  isolation: isolate;
 }
 
 .pane + .pane {
@@ -31,7 +53,7 @@
   position: absolute;
   top: 46px;
   inset-inline-end: 12px;
-  z-index: 3;
+  z-index: 10;
   display: grid;
   place-items: center;
   width: 24px;
@@ -51,9 +73,10 @@
 
 .add {
   position: absolute;
-  bottom: 14px;
-  inset-inline-end: 14px;
-  z-index: 4;
+  top: 50%;
+  inset-inline-end: 6px;
+  transform: translateY(-50%);
+  z-index: 10;
 }
 
 .addButton {
@@ -76,8 +99,9 @@
 
 .picker {
   position: absolute;
-  bottom: 36px;
-  inset-inline-end: 0;
+  top: 50%;
+  inset-inline-end: 34px;
+  transform: translateY(-50%);
   display: flex;
   flex-direction: column;
   width: 260px;
@@ -111,6 +135,24 @@
   cursor: pointer;
 }
 
+.pickerNew {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.pickerNew:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.pickerError {
+  padding: 6px 8px;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+}
+
 .pickerItem:hover {
   background: var(--dsw-alias-interactive-bg-hover);
 }
@@ -127,4 +169,28 @@
   color: var(--dsw-alias-label-primary);
   font-size: 14px;
   pointer-events: none;
+}
+
+/* Navigation cue: the pane's identity color rings the pane and pulses twice, then fades. */
+.flash {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  border: 3px solid var(--dsh-flash-color);
+  border-radius: var(--dsw-radius-md);
+  box-shadow:
+    inset 0 0 36px 4px var(--dsh-flash-color),
+    0 0 24px 2px var(--dsh-flash-color);
+  filter: brightness(1.5) saturate(1.4);
+  opacity: 0;
+  pointer-events: none;
+  animation: dsh-pane-flash 1.8s ease-out forwards;
+}
+
+@keyframes dsh-pane-flash {
+  0% { opacity: 0; }
+  12% { opacity: 1; }
+  35% { opacity: 0.35; }
+  55% { opacity: 1; }
+  100% { opacity: 0; }
 }

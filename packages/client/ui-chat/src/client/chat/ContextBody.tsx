@@ -464,6 +464,12 @@ interface RecalledSession {
   retained: number
   omitted: number
   truncated: boolean
+  /**
+   * Whether a model summary stands in for the session's messages. Retention always keeps the newest
+   * message, so a quoted reference never records zero retained messages beside omitted ones; only a
+   * summarized reference does.
+   */
+  summarized: boolean
 }
 
 /** Recalled sessions read off the source, or null when the record is unusable. */
@@ -485,7 +491,7 @@ function recalledSessions(source: unknown): RecalledSession[] | null {
     if (typeof label !== 'string' || label === ''
       || typeof retained !== 'number' || typeof omitted !== 'number'
       || typeof truncated !== 'boolean') return null
-    sessions.push({ label, retained, omitted, truncated })
+    sessions.push({ label, retained, omitted, truncated, summarized: retained === 0 && omitted > 0 })
   }
   return sessions.length === 0 ? null : sessions
 }
@@ -513,15 +519,19 @@ export function RecallBody({ content, source, t }: {
         {sessions.map((session, index) => (
           <li key={index} className={css.recall}>
             <span className={css.recallLabel}>{session.label}</span>
-            <span className={css.recallCounts}>
-              {t('message.context.recall.counts', {
-                retained: session.retained,
-                omitted: session.omitted,
-              })}
-            </span>
-            {session.truncated && (
-              <span className={css.recallCounts}>{t('message.context.recall.truncated')}</span>
-            )}
+            {session.summarized
+              ? <span className={css.recallCounts}>{t('message.context.recall.summarized', { omitted: session.omitted })}</span>
+              : <>
+                <span className={css.recallCounts}>
+                  {t('message.context.recall.counts', {
+                    retained: session.retained,
+                    omitted: session.omitted,
+                  })}
+                </span>
+                {session.truncated && (
+                  <span className={css.recallCounts}>{t('message.context.recall.truncated')}</span>
+                )}
+              </>}
           </li>
         ))}
       </ul>

@@ -46,6 +46,8 @@ import { PerformanceUsagePolicy } from './performance-usage.ts'
 import { useTurnDataValue } from './chat/use-turn-data.ts'
 import { bindDisclosure } from './chat/use-disclosure.ts'
 import { useFlowHidden, useMotionHidden } from './chat/flow-motion.ts'
+import { createSideQaSource, type SideQaSource } from './side-qa/side-qa-source.ts'
+import { SIDE_QA_VIEW_ID, SideQaView, type SideQaViewInjected } from './side-qa/SideQaView.tsx'
 
 /** Bind group and header visibility to the viewport of one flow render. */
 export const CHAT_FLOW_INJECT: ChatFlowInjected = {
@@ -88,6 +90,15 @@ export function apply(ctx: Context): void {
   // that newer hold alone.
   const quotaNoticeHolds = new Set<symbol>()
   const chatSources = new WeakMap<SessionBinding, ObservableSnapshot<ChatSnapshot>>()
+  const sideQaSources = new Map<SessionId, SideQaSource>()
+  const sideQaSource = (sessionId: SessionId): SideQaSource => {
+    let source = sideQaSources.get(sessionId)
+    if (source === undefined) {
+      source = createSideQaSource(ctx.remote.session, sessionId)
+      sideQaSources.set(sessionId, source)
+    }
+    return source
+  }
   const quotaSubscriptions = new Set<() => Promise<void>>()
   ctx.effect(() => async () => {
     await Promise.all([...quotaSubscriptions].map(dispose => dispose()))
@@ -270,6 +281,7 @@ export function apply(ctx: Context): void {
               window.open(url, '_blank', 'noopener,noreferrer')
             }
           },
+          askSideQuestion: (selection, question) => { void sideQaSource(sessionId).ask(selection, question) },
           loadOlder: () => { void session.loadOlder() },
           loadThrough: seq => session.loadThrough(seq),
           loadImage: Object.assign(
@@ -299,6 +311,17 @@ export function apply(ctx: Context): void {
     }, ChatView)
     return disposeView
   })
+
+  // Side questions are saved beside the Session, not in its log, so their tab
+  // sits next to Chat rather than inside it.
+  ctx.slots.inject('conversation.view', () => ctx.slots.register({
+    name: 'conversation.view',
+    id: SIDE_QA_VIEW_ID,
+    order: 5,
+    label: () => t('sideQa.tab'),
+    locale: NS,
+    inject: (sessionId: SessionId): SideQaViewInjected => ({ source: sideQaSource(sessionId) }),
+  }, SideQaView))
 
   // The quota notice host lives in the frame-wide layer so a notice outlives
   // the Chat panel that reported it. Its chain child lets a package with a

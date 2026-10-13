@@ -17,8 +17,8 @@ import { detectTrigger } from '../core/detect.ts'
 import { MENU_CLOSED, menuReduce, seedGroups } from '../core/menu.ts'
 import type { MenuEvent, MenuState, TriggerHit } from '../core/contract.ts'
 import type {
-  ClientSessionContext, InputTriggerCandidate, InputTriggerCrumb, InputTriggerSource, PickAction,
-  SubmitEnvelope, TriggerChar, TriggerGuard,
+  ClientSessionContext, InputTriggerCandidate, InputTriggerCrumb, InputTriggerSource, LexiconTriggerChar, PickAction,
+  SubmitEnvelope, TriggerGuard,
 } from '../types.ts'
 
 /** Token identity a dismissal sticks to: the same trigger, query, and span bounds. */
@@ -84,8 +84,8 @@ export class InputTriggerController {
    * spawn/exit) — render-side consumers subscribe instead of re-reading a
    * mutable answer.
    */
-  readonly lexicon: SnapshotStore<ReadonlyMap<TriggerChar, readonly string[]>> =
-    createSnapshotStore<ReadonlyMap<TriggerChar, readonly string[]>>(new Map())
+  readonly lexicon: SnapshotStore<ReadonlyMap<LexiconTriggerChar, readonly string[]>> =
+    createSnapshotStore<ReadonlyMap<LexiconTriggerChar, readonly string[]>>(new Map())
 
   /** The authoritative hit: single truth for span CAS material (menu snapshot never carries it alone). */
   private hit: TriggerHit | null = null
@@ -477,9 +477,10 @@ export class InputTriggerController {
   /** Re-poll every lexicon-bearing source and publish the aggregated rolls (see the store doc). */
   private refreshLexicon(): void {
     const projection = this.project()
-    const rolls = new Map<TriggerChar, readonly string[]>()
+    const rolls = new Map<LexiconTriggerChar, readonly string[]>()
     for (const src of this.deps.roster.all()) {
-      if (src.lexicon === undefined) continue
+      // A `#` source inserts chips and has no typed text token to decorate.
+      if (src.lexicon === undefined || src.trigger === '#') continue
       let names: readonly string[] | undefined
       try {
         names = src.lexicon(projection)

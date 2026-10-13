@@ -3,8 +3,9 @@
  * rows). The logged model text remains the single truth; this is presentation
  * only. Inline references follow the consumer's wrapping policy and keep long
  * labels within its width. Four decoration sources, by precedence: the wire session form
- * `@[label](dsh-session:...)` folds to its label; exact session labels
- * supplied by an adjacent recall decorate their bare `@label` mention; plain
+ * `@[label](dsh-session:...)` folds to its label, and the summarized form
+ * `#[label](dsh-session:...)` folds to `#label`; exact session labels
+ * supplied by an adjacent recall decorate their bare `@label` or `#label` mention; plain
  * `@name` word-boundary tokens decorate by shape alone; and a plain `/name`
  * token decorates only when the caller names it — a skill the host actually
  * loaded for that message (ui-chat reads the step's `skill-invocation`
@@ -20,8 +21,8 @@ import { ReferenceIconRegular } from './ReferenceIcon.tsx'
 import css from './user-text.module.css'
 import markdownCss from './markdown/MarkdownText.module.css'
 
-/** The wire form a session chip serializes to; label is the display text. */
-const SESSION_WIRE_RE = /@\[([^\]\n]+)\]\(dsh-session:[^)\s]+\)/gu
+/** The wire form a session chip serializes to: `@` quotes the session, `#` summarizes it; label is the display text. */
+const SESSION_WIRE_RE = /([@#])\[([^\]\n]+)\]\(dsh-session:[^)\s]+\)/gu
 
 /** Sentence punctuation a bare `@name` token may carry without being part of the reference. */
 const TRAILING_PUNCTUATION_RE = /[.,;:!?，。；：！？]+$/u
@@ -71,15 +72,18 @@ export function projectUserText(
       end: wire.index + wire[0].length,
       label: wire[0],
       kind: 'session',
-      display: wire[1] as string, // non-optional capture in SESSION_WIRE_RE
+      // Both captures are non-optional in SESSION_WIRE_RE; a summarized session keeps its typed `#`.
+      display: `${wire[1] === '#' ? '#' : ''}${wire[2] as string}`,
     })
   }
   for (const rawLabel of [...new Set(sessionLabels)].sort((a, b) => b.length - a.length)) {
-    const label = `@${rawLabel}`
-    let start = text.indexOf(label)
-    while (start >= 0) {
-      ranges.push({ start, end: start + label.length, label, kind: 'session' })
-      start = text.indexOf(label, start + label.length)
+    for (const marker of ['@', '#']) {
+      const label = `${marker}${rawLabel}`
+      let start = text.indexOf(label)
+      while (start >= 0) {
+        ranges.push({ start, end: start + label.length, label, kind: 'session', ...marker === '#' ? { display: label } : {} })
+        start = text.indexOf(label, start + label.length)
+      }
     }
   }
   // A `/` token ends at whitespace or the text end like the host skill

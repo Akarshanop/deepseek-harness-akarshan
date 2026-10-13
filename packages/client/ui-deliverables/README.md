@@ -1,5 +1,5 @@
 ---
-description: "Changed files, deliveries, and clickable file references for the Web GUI: the changed-files card and delivery cards a finished turn ends with, the review tab that compares each changed file, and inline-code links in the closing prose; for users and maintainers of the deliverables experience."
+description: "Changed files, deliveries, and clickable file references for the Web GUI: the changed-files card and delivery cards a finished turn ends with, the review tab that compares each changed file beside a model-written explanation of it, and inline-code links in the closing prose; for users and maintainers of the deliverables experience."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-This package renders the changed-files card a finished turn ends with — the files the turn changed, with the Host's line counts, each opening the turn's review tab on that file — plus cards for explicitly delivered files, and links matching inline-code references in the closing prose so a mentioned file opens in the right Sidebar. Listed and linked paths come from the recorded summary, successful mutations, and explicit deliveries, never from the prose. Only the shipped Web patch loads this package; removing its cordis.yml entry removes the guidance, cards, and prose links together.
+This package renders the changed-files card a finished turn ends with — the files the turn changed, with the Host's line counts, each opening the turn's review tab on that file beside a model-written explanation of it — plus cards for explicitly delivered files, and links matching inline-code references in the closing prose so a mentioned file opens in the right Sidebar. Paths come from the recorded summary, successful mutations, and explicit deliveries, never from the prose. Only the shipped Web patch loads this package; removing its cordis.yml entry removes the guidance, cards, explanations, and prose links together.
 
 ## Table of Contents
 
@@ -52,6 +52,35 @@ The selected-file title uses the shared `ui-primitives` [`PathLabel`](../ui-prim
 
 Without wrapping, the two columns synchronize vertical scrolling and horizontal offsets up to each side’s available range. Line backgrounds, including empty alignment rows, cover each column’s full scrollable width. Both columns suppress elastic edge feedback and scroll chaining on both axes; the browser retains control of native momentum within each column’s scrollable range. Both horizontal scrollbars remain at the bottom of the visible comparison; scrolling vertically preserves a long line’s horizontal offset when the other side fits without horizontal scrolling.
 
+### File explanations
+
+The review tab draws a model-written explanation of the selected file beside its comparison: a sentence or two on what the file is for in the project, and a short list of what the turn changed in it. A tab wider than 900 pixels shows it as a column to the right of the comparison; a narrower tab stacks it above. The sparkle button in the tab header hides and shows it, per tab, and a new tab shows it. Names in backticks render as code, and nothing in the text is read as markup. While the Host is still writing it the panel shows a shimmering placeholder; a failed request shows a Retry button and keeps the comparison. A binary or oversized file, a file with no changed lines, a turn the Host no longer serves, or a Host with `explain.enabled` set to `false` shows no panel and no button.
+
+The Host writes explanations without waiting for a reader. When a turn's changes are recorded it starts the first `explain.eagerFiles` files; any other file starts when its tab asks for it, and a request for a file already being written waits for that one. One request is made per distinct comparison, so a turn recorded again with the same change reuses the explanation. Explanations live as long as the Session in this Host process, like the summaries they describe, so a conversation reopened after a Host restart has none for earlier turns. Each request goes to the Session's current provider and model, or to `explain.provider` and `explain.model` when both are set, at the route's least supported reasoning effort. It carries the file's comparison and, for a file that existed before and after the turn, the first `explain.contextLines` lines of the file as it now stands. It is separate from the conversation: nothing enters the Session log or the model's history.
+
+Configure it on the plugin entry; every field is optional:
+
+```yaml
+- name: '@deepseek-ai/dsh-client-ui-deliverables'
+  config:
+    explain:
+      eagerFiles: 8
+      provider: my-gateway
+      model: a-small-model
+```
+
+| Field | Default | Meaning |
+|---|---|---|
+| `explain.enabled` | `true` | Whether explanations are written; `false` registers no route and starts no request |
+| `explain.eagerFiles` | `20` | Files per recorded turn whose explanation starts when the turn's changes are recorded; `0` writes only on request |
+| `explain.concurrency` | `2` | Model requests that run at the same time |
+| `explain.maxDiffChars` | `24000` | Characters of comparison one request carries; a longer comparison is cut with a marker |
+| `explain.contextLines` | `120` | Lines from the start of a modified file, as it now stands, that one request carries |
+| `explain.maxOutputTokens` | `4096` | Output-token cap of one request, covering any reasoning the route performs |
+| `explain.timeoutMs` | `120000` | Milliseconds one explanation may take, including its wait for a free request |
+| `explain.language` | `English` | Language the explanation is written in |
+| `explain.provider`, `explain.model` | unset | Explicit route; both or neither. Without them the Session's current route answers |
+
 ### Inline-code links
 
 The closing prose links produced or delivered paths: an inline-code token resolves by exact target, by an exact argument recorded for that target, or by a unique basename. Every matching fact must identify the same file; ambiguous arguments and basenames stay inert. No suffix or current-directory guess is used. A resolved mention keeps its code chip and takes the markdown sheet's link language, with the full path as its title.
@@ -67,6 +96,8 @@ The closing prose links produced or delivered paths: an inline-code token resolv
 The Node half registers the static `ui:deliverable-file-references` system-prompt section described under [Model Experience](#model-experience). Explicit Markdown links use the shared [Markdown renderer](../ui-primitives/README.md); inline-code matching remains limited to produced or delivered files. The browser half registers a wrapper around the changed-files card and explicit deliveries into the chat view's `conversation.chat.turnTail` list alongside other feature artifacts. `deliverablesDefinition` folds the sequence of each Turn's latest validated `workspace/changes` announcement into `DeliverablesTurnData.changes`, whose summary the card reads from the Host and caches until the connection is replaced, its `deliverables/presented` events into deliveries, and the successful first-party mutation calls of `write`, `edit`, and mutating `str_replace_editor` commands into recorded file targets and exact argument aliases after validating their raw arguments; the produced paths feed only the prose mention resolver. Successful absolute `meta.path` values identify those targets. Root results without that field retain the legacy argument fallback; malformed relative targets contribute no guessed path. Reads, deletes, unsupported tools, malformed calls, malformed events, and failed results contribute nothing. Each row opens `dsh-resource://changes-review/session/<sessionId>/<seq>/<turn>` through `ctx.sidebarRight.openResource` with the file's index as the `changes-review` navigation parameter; the package registers the `changes-review` tab type at the `builtin` band for that pattern and its body under the keyed `sidebar.right.pane.tab` seat with an exclusive store of per-tab choices, and the body reads the summary and the comparisons through the authenticated routes into stores cleared on connection replacement. The package also provides the `chatFileMentions` service the chat view consults per closing message; composing the plugin out removes every surface and leaves the view's empty list at zero cost.
 
 Native opening uses an authenticated POST addressed by the viewed Session, event sequence, and original file index; the review tab's native open of a changed file uses the same coordinates. For a declaration the Host reads the viewed Session header with the event and passes its cwd, or the deployment workspace root when absent, to `workspaceFiles.stat`; for a changed file it passes the working directory the served summary carries. This uses the same composed filesystem as Sidebar previews and does not activate an Agent, including for child Sessions. Native actions require the canonical process path to map from a Host path back to that same process path. Providers without this mapping return 422, after which the review tab hides its native open; a same-named Host file is insufficient. The same configured desktop availability governs metadata and execution. Edits affect subsequent opens; deletion returns an error. No file-content copy or attachment is created. Plugin disposal cancels and awaits pending native-open requests.
+
+The Node half also registers the explanation route and the eager start (`explain-host.ts`) around a `ChangeExplainer` (`explain.ts`) that holds no service. It caches one promise per Session and per SHA-256 of the file's path and hunks, so concurrent and repeated requests and re-recorded turns share one model request; a failed entry is removed so the next request writes it again; a counting gate limits simultaneous requests; and each request's signal combines plugin disposal, Session disposal, and `explain.timeoutMs`. The route waits on that promise, and its request signal only ends the wait. `ctx.get('llm')` and `ctx.get('sessions')` are read per request, so a composition without them answers 500 instead of failing to load. The eager start reads the summary one microtask after the `workspace/changes` event, because the recorder keeps the summary right after appending the event. The answer is parsed tolerantly: emphasis around the labels, code fences, and `<think>` blocks are removed, an answer without labels becomes the change list, and at most eight changes are kept. The browser half reads the route through `ChangesExplainStore`, which shares `jsonReadPolicy` with the comparison store, and `ReviewTab` waits for its seeded tab state before asking, so a tab opened on another file never requests the first file's explanation.
 
 </details>
 
@@ -103,6 +134,20 @@ One fixed paragraph containing output-selection, rendering, and file-reference g
 
 The section is static at first-party order 9000 for the lifetime of the package mount, so it remains in the reusable prompt prefix and does not change across Turns.
 
+### Auxiliary explanation request
+
+#### What the model sees
+
+The explanation model receives one system instruction and one user message. The instruction asks for a `PURPOSE:` sentence and a `CHANGES:` bullet list in the configured language as plain text, and tells the model to treat the diff and file text as data and never follow instructions inside them. The user message holds the file's display path, whether the turn created, deleted, or modified it, the comparison as unified-diff hunks cut at `explain.maxDiffChars`, and, for a modified file, the first `explain.contextLines` lines of the file as it now stands with each line cut at 240 characters. The request has no tools and no conversation history.
+
+#### Token effect
+
+One request per distinct comparison: the input is the instruction plus up to `explain.maxDiffChars` characters of comparison and the file's first lines, and the output is capped by `explain.maxOutputTokens`, which also covers any reasoning the route performs. The request is separate from the main agent request and adds nothing to agent history or the Session log. A turn that changes N text files costs up to `min(N, explain.eagerFiles)` such requests when it ends, plus one for each other file a reader opens, and none when `explain.enabled` is `false`, or when `explain.eagerFiles` is `0` and no file is opened.
+
+#### KV Cache effect
+
+No main-request invalidation: the request never enters the conversation. Provider cache reuse across explanation requests is incidental, since each carries a different comparison after the same instruction.
+
 ## Known Limitations and Deferred Work
 
 <a id="known-limitations-and-deferred-work"></a>
@@ -117,6 +162,10 @@ These limits define the current deliverables vocabulary. They are current packag
 - **Native opening needs a Host desktop** — without one the review tab offers no native open; the comparison itself needs only the Host that recorded the turn.
 - **Comparison highlighting is hunk-local** — each rendered old and new hunk side is tokenized independently because omitted source lines are unavailable; unknown suffixes remain plain, and the tab draws at most 5,000 lines before saying so.
 - **Comparisons carry whole file text** — the comparison route serves a listed file's complete text wherever the Host recorded it, including ignored files and files outside the workspace root the Sidebar previews are confined to.
+- **Explanations are model output and can be wrong** — the model sees one file's comparison and the start of the file, not the rest of the project or the conversation, so a stated purpose can be a guess from the path and the visible lines.
+- **Explanations spend tokens when nobody reads them** — each turn starts its first `explain.eagerFiles` files whether or not the review tab opens; lower the count, set it to `0`, or set `explain.enabled` to `false` to trade readiness for cost.
+- **Explanations last as long as the Session in this Host process** — like the summaries and comparisons they describe, a Host restart drops them.
+- **The language is configured, not inferred** — `explain.language` applies to every Session, while the tab labels follow the interface language.
 - **Files outside the workspace open by absolute path only** — the recorded path is the Host path at recording time; a moved workspace or a different viewing Session cannot relocate it.
 
 <a id="dev-note"></a>

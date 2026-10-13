@@ -937,8 +937,13 @@ describe('plugin registration', () => {
     fetcher.mockResolvedValueOnce(new Response(null, { status: 204 }))
     await tabFace.openChanged(SessionId('child-session'), 5, 1)
     expect(tabFace.hooks.presentedOpen.getSnapshot()['api/changes.open?sessionId=child-session&seq=5&index=1']).toBe('opened')
+    fetcher.mockResolvedValueOnce(Response.json({ purpose: 'Wires the app.', changes: ['Renames `a`.'] }))
+    await tabFace.loadChangesExplain(SessionId('child-session'), 5, 1)
+    expect(tabFace.hooks.changesExplain.getSnapshot()['api/changes.explain?sessionId=child-session&seq=5&index=1'])
+      .toEqual({ purpose: 'Wires the app.', changes: ['Renames `a`.'] })
     ctx.emit('connection/reset')
     expect(tabFace.hooks.changesDiff.getSnapshot()).toEqual({})
+    expect(tabFace.hooks.changesExplain.getSnapshot()).toEqual({})
     // A turn that produced nothing yields no vocabulary at all.
     expect(service?.forClosing(tailOwner(undefined, 2), SessionId('viewed-session'))).toBeUndefined()
 

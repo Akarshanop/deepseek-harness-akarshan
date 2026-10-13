@@ -1,4 +1,5 @@
 - banner:
+  - button "Change session color"
   - navigation "Session hierarchy": Use the bash tool to
   - text: Standard mode
   - button "More actions"
@@ -28,3 +29,4 @@
 - button "1 turns 2 steps · {{throughput}} tok/s": 1 turns 2 steps{{throughput}} tok/s
 - button "15.8K tok · Cache hit 99%": 15.8K tokCache hit 99%
 - button "6% of context used": 6%
+- button "Open a session side by side"

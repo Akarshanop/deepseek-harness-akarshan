@@ -1,4 +1,4 @@
-/** `deliverables` namespace dictionaries: cards, comparison tab, and file-mention copy. */
+/** `deliverables` namespace dictionaries: cards, comparison tab and its file summary, and file-mention copy. */
 
 /** Dictionary namespace owned by this plugin. */
 export const NS = 'deliverables'
@@ -55,6 +55,14 @@ export const zh = {
   'review.wrapAria': '自动换行',
   'review.openFile': '在侧边栏打开整个文件',
   'review.openFileAria': '在侧边栏打开 {name}',
+  'review.explainShow': '显示摘要',
+  'review.explainHide': '隐藏摘要',
+  'review.explainAria': '文件摘要',
+  'explain.title': 'AI 摘要',
+  'explain.purpose': '文件作用',
+  'explain.changes': '本轮改动',
+  'explain.loading': '正在生成摘要…',
+  'explain.error': '无法生成摘要',
   'diff.loading': '正在读取改动…',
   'diff.missing': '这轮改动的内容已不可用',
   'diff.error': '无法读取改动',
@@ -119,6 +127,14 @@ export const en: Record<DeliverablesKey, string> = {
   'review.wrapAria': 'Line wrap',
   'review.openFile': 'Open the whole file in the sidebar',
   'review.openFileAria': 'Open {name} in sidebar',
+  'review.explainShow': 'Show summary',
+  'review.explainHide': 'Hide summary',
+  'review.explainAria': 'File summary',
+  'explain.title': 'AI summary',
+  'explain.purpose': 'What this file does',
+  'explain.changes': 'What changed',
+  'explain.loading': 'Writing summary…',
+  'explain.error': 'Could not write the summary',
   'diff.loading': 'Reading changes…',
   'diff.missing': 'The contents of this turn’s changes are no longer available',
   'diff.error': 'Could not read the changes',

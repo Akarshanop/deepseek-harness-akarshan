@@ -43,6 +43,11 @@ export interface SessionReferenceInput {
   sessionId: SessionId
   /** Optional user-facing mention label. */
   label?: string
+  /**
+   * Summarize the source with a separate model request instead of quoting its messages.
+   * The source is read, never written: it gains no compaction event and keeps its own history.
+   */
+  compact?: boolean
 }
 
 /** One host-facing candidate from exact session metadata. */
@@ -69,6 +74,8 @@ export interface SessionReferenceCandidate {
 export interface SessionReferenceMentionCandidate extends SessionReferenceCandidate {
   /** Canonical `@[label](dsh-session:…)` mention serialized into the prompt draft. */
   mention: string
+  /** Canonical `#[label](dsh-session:…)` mention that asks for a summary of the session instead of its messages. */
+  compactMention: string
 }
 
 /** Direct message content and optional referenced-session context. */

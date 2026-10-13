@@ -1,4 +1,5 @@
 - banner:
+  - button "Change session color"
   - navigation "Session hierarchy": Use the ask_user_question tool to
   - button "More actions"
   - button "Open right sidebar"
@@ -41,3 +42,4 @@
   - text: 1 / 1
   - button "Next question" [disabled]
   - status
+- button "Open a session side by side"

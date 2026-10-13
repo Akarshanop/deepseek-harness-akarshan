@@ -36,6 +36,21 @@ describe('projectUserText', () => {
     expect(host.textContent).toBe('看看 查看并分析图片 的结论')
   })
 
+  it('folds the summarized wire form to its label behind the typed #, with the session glyph', () => {
+    const host = project('用 #[查看并分析图片](dsh-session:InNlc3Npb24tNDM0) 的摘要，再看 @[b](dsh-session:Yg)')
+    const chips = [...host.querySelectorAll('[data-ref-chip="session"]')]
+    expect(chips.map(chip => chip.textContent)).toEqual(['#查看并分析图片', 'b'])
+    expect(chips[0]!.getAttribute('title')).toBe('#[查看并分析图片](dsh-session:InNlc3Npb24tNDM0)')
+    expect(chips[0]!.querySelector('svg')).not.toBeNull()
+  })
+
+  it('decorates a recall-associated #label as a summarized session chip and leaves other hashes plain', () => {
+    const host = project('#会话一 与 @会话一 与 #12 与 #别的', ['会话一'])
+    const chips = [...host.querySelectorAll('[data-ref-chip]')].map(chip => [chip.getAttribute('data-ref-chip'), chip.textContent])
+    expect(chips).toEqual([['session', '#会话一'], ['session', '会话一']])
+    expect(host.textContent).toBe('#会话一 与 会话一 与 #12 与 #别的')
+  })
+
   it('prefers the wire fold over the bare-token scan on the same range', () => {
     const host = project('@[a](dsh-session:x)', [])
     expect(host.querySelectorAll('[data-ref-chip]').length).toBe(1)

@@ -30,8 +30,14 @@ export interface ClientSessionContext {
   readonly sessionId: SessionId
 }
 
-/** Trigger character a source binds to. */
-export type TriggerChar = '/' | '@'
+/**
+ * Trigger character a source binds to. `#` opens only after whitespace or at the draft start, so a hash
+ * inside text (an anchor, an issue number, a color) never opens a menu.
+ */
+export type TriggerChar = '/' | '@' | '#'
+
+/** The triggers whose typed text tokens a source's lexicon can decorate; a `#` source inserts chips only. */
+export type LexiconTriggerChar = Exclude<TriggerChar, '#'>
 
 /** Where the trigger token sits in the draft: leading (trimmed draft starts with it) or inline. */
 export type TriggerPosition = 'leading' | 'inline'
@@ -205,7 +211,7 @@ export interface InputTriggerSource {
    */
   warm?(session: ClientSessionContext): void
   /**
-   * Synchronous hot-snapshot name roll for plain-text reference decoration.
+   * Synchronous hot-snapshot name roll for plain-text reference decoration; ignored for a `#` source.
    * Implementing IS the participation claim: the render side
    * scans the draft for `<trigger><name>` tokens and decorates exact matches.
    * `undefined` = backing data not warm yet — no decoration, never a fetch
@@ -235,6 +241,6 @@ export interface InputTriggerSource {
 
 /** Trigger availability tier, derived from the input phase by the wiring layer. */
 export interface TriggerGuard {
-  /** plain: '/' and '@' live; claimed: '/' suppressed, '@' live; frozen: none. */
+  /** plain: '/', '@', and '#' live; claimed: '/' suppressed, '@' and '#' live; frozen: none. */
   readonly tier: 'plain' | 'claimed' | 'frozen'
 }

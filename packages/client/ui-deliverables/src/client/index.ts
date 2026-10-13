@@ -20,6 +20,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { changesReviewAddress } from '../changes.ts'
 import { ChangesDiffStore } from './changes-diff.ts'
+import { ChangesExplainStore } from './changes-explain.ts'
 import { ChangesSummaryStore } from './changes-summary.ts'
 import { PresentedOpenController } from './present-open.ts'
 import { PresentRow } from './PresentRow.tsx'
@@ -50,11 +51,13 @@ export function apply(ctx: ClientContext): void {
   const opener = new PresentedOpenController()
   const summaries = new ChangesSummaryStore()
   const diffs = new ChangesDiffStore()
-  ctx.effect(() => () => Promise.all([opener.dispose(), summaries.dispose(), diffs.dispose()]))
+  const explanations = new ChangesExplainStore()
+  ctx.effect(() => () => Promise.all([opener.dispose(), summaries.dispose(), diffs.dispose(), explanations.dispose()]))
   ctx.on('connection/reset', () => {
     opener.resetHost()
     summaries.reset()
     diffs.reset()
+    explanations.reset()
   })
   ctx.uiConversation.events.register(deliverablesDefinition)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-deliverables: dictionaries')
@@ -89,9 +92,13 @@ export function apply(ctx: ClientContext): void {
       name: 'sidebar.right.pane.tab', key: CHANGES_REVIEW_ID, locale: NS, store: createReviewStore(),
       children: { 'deliverables.review.file.actions': { kind: 'list', scope: 'session' } },
       inject: (): ReviewInjected => ({
-        hooks: { changesSummary: summaries.state, changesDiff: diffs.state, presentedOpen: opener.state, presentedHost: opener.host },
+        hooks: {
+          changesSummary: summaries.state, changesDiff: diffs.state, changesExplain: explanations.state,
+          presentedOpen: opener.state, presentedHost: opener.host,
+        },
         loadChangesSummary: (sessionId, seq) => summaries.load(sessionId, seq),
         loadChangesDiff: (sessionId, seq, index) => diffs.load(sessionId, seq, index),
+        loadChangesExplain: (sessionId, seq, index) => explanations.load(sessionId, seq, index),
         reloadPresentedHost: () => opener.loadHost(),
         openChanged: (sessionId, seq, index, action, application) => opener.openChanged(sessionId, seq, index, action, application),
       }),

@@ -1,4 +1,5 @@
 - banner:
+  - button "Change session color"
   - navigation "Session hierarchy": Use the read tool twice
   - button "More actions"
   - button "Open right sidebar"
@@ -39,3 +40,4 @@
 - button "Send message" [disabled]
 - button "1 turns 2 steps · {{throughput}} tok/s": 1 turns 2 steps{{throughput}} tok/s
 - button "16K tok · Cache hit 98%": 16K tokCache hit 98%
+- button "Open a session side by side"

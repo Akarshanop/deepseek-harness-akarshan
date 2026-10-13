@@ -1,4 +1,5 @@
 - banner:
+  - button "Change session color"
   - navigation "Session hierarchy": Reference order target
   - button "More actions"
   - button "Open right sidebar"
@@ -14,3 +15,4 @@
 - 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current DeepSeek-V4-Flash": DeepSeek-V4-Flash
 - button "Send message" [disabled]
+- button "Open a session side by side"

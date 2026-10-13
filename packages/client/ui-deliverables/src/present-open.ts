@@ -140,7 +140,7 @@ function handleChangesSummary(ctx: Context, request: Request): Response {
 }
 
 /** A changed file's coordinates from a route query, or the 400 to answer with. */
-function changedFileCoordinates(request: Request): { id: SessionId; seq: number; index: number } | Response {
+export function changedFileCoordinates(request: Request): { id: SessionId; seq: number; index: number } | Response {
   const query = new URL(request.url).searchParams
   const id = query.get('sessionId')
   const seq = coordinate(query.get('seq'))

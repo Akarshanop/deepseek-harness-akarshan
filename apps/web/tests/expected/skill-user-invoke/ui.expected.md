@@ -1,4 +1,5 @@
 - banner:
+  - button "Change session color"
   - navigation "Session hierarchy": /user-invoke-demo @"meeting notes-this-i
   - text: Standard mode
   - button "More actions"
@@ -26,3 +27,4 @@
 - button "1 turns 1 steps · {{throughput}} tok/s": 1 turns 1 steps{{throughput}} tok/s
 - button "272 tok · Cache hit 0%": 272 tokCache hit 0%
 - button "0% of context used": 0%
+- button "Open a session side by side"

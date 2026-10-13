@@ -22,7 +22,7 @@ interface FileReferenceCandidate {
 
 ## Inputs and candidates
 
-`SessionReferenceInput` is the host-independent selection. The id is authoritative; the label is display metadata carried into the snapshot.
+`SessionReferenceInput` is the host-independent selection. The id is authoritative; the label is display metadata carried into the snapshot. A `compact` input requests a summary instead of a quoted preview: its canonical mention is `#[label](dsh-session:…)`, where `@[label](…)` quotes.
 
 ```ts type-equiv
 /** One source session selected by a host. */
@@ -31,6 +31,11 @@ interface SessionReferenceInput {
   sessionId: SessionId
   /** Optional user-facing mention label. */
   label?: string
+  /**
+   * Summarize the source with a separate model request instead of quoting its messages.
+   * The source is read, never written: it gains no compaction event and keeps its own history.
+   */
+  compact?: boolean
 }
 ```
 
@@ -58,13 +63,15 @@ interface SessionReferenceCandidate {
 }
 ```
 
-The `sessionReferenceResolver/candidates` Remote method serves the same discovery to browser consumers and attaches each candidate's canonical prompt mention.
+The `sessionReferenceResolver/candidates` Remote method serves the same discovery to browser consumers and attaches each candidate's canonical prompt mentions: `mention` to quote the session, `compactMention` to summarize it.
 
 ```ts type-equiv
 /** One discovery candidate carrying its canonical prompt mention. */
 interface SessionReferenceMentionCandidate extends SessionReferenceCandidate {
   /** Canonical `@[label](dsh-session:…)` mention serialized into the prompt draft. */
   mention: string
+  /** Canonical `#[label](dsh-session:…)` mention that asks for a summary of the session instead of its messages. */
+  compactMention: string
 }
 ```
 
@@ -106,9 +113,11 @@ interface PreparedReferencedMessage {
 }
 ```
 
+A `compact` source is summarized by one separate model request on the target's route: its assembled route, else its agent options, else its latest logged request header. The request carries only the bounded projection, so the source Session is read and never written: it gains no compaction bracket, checkpoint, or reference record, and keeps its own history. The durable context carries the summary beside an empty `conversation`, and the source record states `retainedMessages: 0` with every message omitted, which a quoted preview never records because retention keeps the newest message. A source with no conversation is prepared as an ordinary empty reference without a request.
+
 ## Errors
 
-`SessionReferenceError.code` separates invalid configuration or input, self-reference, count limits, source-read failure, budget failure, and cancellation. Host protocols map these codes to their own error envelopes without inspecting prompt bytes.
+`SessionReferenceError.code` separates invalid configuration or input, self-reference, count limits, source-read failure, budget failure, summarization failure, and cancellation. Host protocols map these codes to their own error envelopes without inspecting prompt bytes.
 
 ```ts type-equiv
 /** Stable failure codes exposed to host adapters. */
@@ -120,6 +129,7 @@ type SessionReferenceErrorCode =
   | 'SESSION_REFERENCE_READ_FAILED'
   | 'SESSION_REFERENCE_BUDGET_EXCEEDED'
   | 'SESSION_REFERENCE_CANCELLED'
+  | 'SESSION_REFERENCE_COMPACT_FAILED'
 ```
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
@@ -216,9 +226,19 @@ async listCandidates( agent: Agent, query: string = '', limit: number = this.con
  * @returns detached content and optional referenced-session context.
  */
 async prepare( agent: Agent, content: ContentBlock[], references: SessionReferenceInput[], signal?: AbortSignal, ): Promise<PreparedReferencedMessage>
+
+/**
+ * Remote face that writes a `#` source's summary ahead of the send, so picking the session starts the
+ * work and sending reuses its result. The source is read, never written.
+ * @param agent - the composer's session; references to it are rejected.
+ * @param sessionId - the source session to summarize.
+ * @param signal - caller cancellation; the shared request keeps running for the send that follows.
+ * @returns once the summary is ready.
+ */
+@Remote('summarize') async remoteSummarize(agent: Agent, sessionId: SessionId, signal: AbortSignal): Promise<void>
 ```
 
-Types: [Agent](core.md) · [ContentBlock](llm-streaming.md)
+Types: [Agent](core.md) · [ContentBlock](llm-streaming.md) · [SessionId](core.md)
 
 Source: [`packages/context/session-reference/src/index.ts`](../../packages/context/session-reference/src/index.ts)
 <!-- END GENERATED cordis-surface -->

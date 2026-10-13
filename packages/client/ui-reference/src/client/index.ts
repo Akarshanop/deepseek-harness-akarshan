@@ -1,5 +1,6 @@
 /**
- * Unified Web `@` reference source. File and session discovery run through
+ * Unified Web `@` reference source and the `#` summarized-session source.
+ * File and session discovery run through
  * the cancellable generated Remote namespaces in parallel with deterministic
  * ordering and labels.
  * Candidate requests retain an existing Client Session through completion
@@ -11,6 +12,10 @@
  * workspace is not the current one. A session is dated from the Host session
  * list, so the `@` menu and the session list never disagree about its age.
  *
+ * `#` lists the same sessions but inserts a `#[label](dsh-session:…)` chip: the
+ * Host summarizes that session for this message with a separate model request
+ * and leaves the source session as it was.
+ *
  * @module @deepseek-ai/dsh-client-ui-reference/client
  */
 // Type-only: pulls the generated Remote API and ctx.remote merge through the Client assembly boundary.
@@ -20,6 +25,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { relativeTime } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   ClientSessionContext, InputTriggerCrumb, InputTriggerServiceContract, InputTriggerSource,
@@ -44,66 +50,79 @@ export const inject = [
 ]
 
 /**
- * Register the combined `@file` / `@session` source.
+ * Register the combined `@file` / `@session` source and the `#session` summary source.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-reference: dictionaries')
   const t = ctx.locale.bind(NS)
   const sessions = ctx.get('sessions') as ISessions
+  /** Run a candidate lookup once the composer's retained session has opened its history; its signal ends the wait. */
+  const withOpenSession = <T>(session: ClientSessionContext, signal: AbortSignal, run: () => Promise<T>): Promise<T> => {
+    if (sessions.binding(session.sessionId) === undefined) {
+      throw new Error(`reference candidates require a retained session "${session.sessionId}"`)
+    }
+    return sessions.using(session.sessionId, { source: 'referenceCandidates', signal }, async (reference) => {
+      signal.throwIfAborted()
+      const state = reference.binding.session.getSnapshot()
+      if (state.openState !== 'open') {
+        throw state.openError ?? new Error(`session "${session.sessionId}" is not open`)
+      }
+      return run()
+    })
+  }
+  const sessionLookupOf = (session: ClientSessionContext, query: string, signal: AbortSignal) =>
+    ctx.remote.sessionReferenceResolver.candidates(session.sessionId, query, signal)
+      .then(result => result.ok ? result.value : [])
+  /**
+   * The session rows of one menu: direct subagents of the composer's session first, then the other
+   * sessions, each dated from the Host session list. `summarized` rows carry the `#` mention.
+   */
+  const sessionRowsOf = (session: ClientSessionContext, items: readonly SessionReferenceMentionCandidate[], summarized: boolean) => {
+    const now = Date.now()
+    const home = ctx.remote.$host.home
+    const listed = sessions.list.getSnapshot().byId
+    const rows = items.map((candidate) => {
+      const summary = listed[candidate.sessionId]
+      const child = summary?.origin === 'subagent' && summary.parentId === session.sessionId
+      return {
+        child,
+        row: sessionCandidate(
+          candidate,
+          candidate.displayTitle ?? candidate.label,
+          summary?.updatedAt ?? candidate.createdAt,
+          now,
+          home,
+          t(child
+            ? summarized ? 'section.subagentsSummarized' : 'section.subagents'
+            : summarized ? 'section.sessionsSummarized' : 'section.sessions'),
+          summarized ? candidate.compactMention : candidate.mention,
+          t,
+        ),
+      }
+    })
+    return [...rows.filter(item => item.child).map(item => item.row), ...rows.filter(item => !item.child).map(item => item.row)]
+  }
   const source: InputTriggerSource = {
     trigger: '@',
     name: 'reference',
     showGroupTitle: false,
     async candidates(session: ClientSessionContext, { query, quoted, drilled, signal }) {
-      if (sessions.binding(session.sessionId) === undefined) {
-        throw new Error(`reference candidates require a retained session "${session.sessionId}"`)
-      }
-      const [fileItems, sessionItems] = await sessions.using(
-        session.sessionId,
-        { source: 'referenceCandidates', signal },
-        async (reference) => {
-          signal.throwIfAborted()
-          const state = reference.binding.session.getSnapshot()
-          if (state.openState !== 'open') {
-            throw state.openError ?? new Error(`session "${session.sessionId}" is not open`)
-          }
-          const fileLookup = ctx.remote.fileReferences.list(session.sessionId, query, signal)
-            .then(result => result.ok ? result.value : [])
-          const sessionLookup = quoted === true
-            ? Promise.resolve([] as SessionReferenceMentionCandidate[])
-            : ctx.remote.sessionReferenceResolver.candidates(session.sessionId, query, signal)
-              .then(result => result.ok ? result.value : [])
-          return Promise.all([fileLookup, sessionLookup])
-        },
-      )
+      const [fileItems, sessionItems] = await withOpenSession(session, signal, () => {
+        const fileLookup = ctx.remote.fileReferences.list(session.sessionId, query, signal)
+          .then(result => result.ok ? result.value : [])
+        const sessionLookup = quoted === true
+          ? Promise.resolve([] as SessionReferenceMentionCandidate[])
+          : sessionLookupOf(session, query, signal)
+        return Promise.all([fileLookup, sessionLookup])
+      })
       if (signal.aborted) return []
       // The header already names the directory being listed; rows repeat it only
       // when there is no header to carry it.
       const withLocation = crumbsFor(query, quoted === true, drilled, t) === undefined
-      const now = Date.now()
-      const home = ctx.remote.$host.home
-      const listed = sessions.list.getSnapshot().byId
-      const sessionRows = sessionItems.map((candidate) => {
-        const summary = listed[candidate.sessionId]
-        const child = summary?.origin === 'subagent' && summary.parentId === session.sessionId
-        return {
-          child,
-          row: sessionCandidate(
-            candidate,
-            candidate.displayTitle ?? candidate.label,
-            summary?.updatedAt ?? candidate.createdAt,
-            now,
-            home,
-            t(child ? 'section.subagents' : 'section.sessions'),
-            t,
-          ),
-        }
-      })
       return [
         ...fileItems.flatMap(candidate => fileCandidate(candidate, quoted === true, withLocation, t)),
-        ...sessionRows.filter(item => item.child).map(item => item.row),
-        ...sessionRows.filter(item => !item.child).map(item => item.row),
+        ...sessionRowsOf(session, sessionItems, false),
       ]
     },
     header(_session: ClientSessionContext, req) {
@@ -154,15 +173,66 @@ export function apply(ctx: ClientContext): void {
       serialize: ref => Promise.resolve(ref),
     },
   }
+  /** Summaries the Host is writing for picked `#` chips, by the chip's mention; sending awaits the same work. */
+  const warming = new Map<string, Promise<void>>()
+  const summarized: InputTriggerSource = {
+    trigger: '#',
+    name: 'session-context',
+    showGroupTitle: false,
+    async candidates(session: ClientSessionContext, { query, signal }) {
+      const items = await withOpenSession(session, signal, () => sessionLookupOf(session, query, signal))
+      return signal.aborted ? [] : sessionRowsOf(session, items, true)
+    },
+    onPick({ candidate, session }) {
+      const value = parseCandidate(candidate.value)
+      if (value?.kind !== 'session') return undefined
+      // Picking starts the Host's summary now, so the send finds it written or waits only for the rest of it.
+      const work = ctx.remote.sessionReferenceResolver.summarize(session.sessionId, value.sessionId, new AbortController().signal)
+        .then((result) => {
+          if (!result.ok) throw new Error(result.error.message)
+        })
+      work.catch(() => undefined)
+      warming.set(value.mention, work)
+      return {
+        insert: {
+          source: 'session-context',
+          ref: value.mention,
+          // The typed trigger stays on the chip, so a summarized session reads differently from a quoted one.
+          label: `#${value.label}`,
+          appearance: 'session',
+          clipboardText: value.mention,
+        },
+      }
+    },
+    codec: {
+      clipboardText: ref => ref,
+      async serialize(ref, signal) {
+        const work = warming.get(ref)
+        // A chip with no warm-up (a restored or pasted draft) is summarized by the Host at send instead.
+        if (work === undefined) return ref
+        try {
+          await new Promise<void>((resolve, reject) => {
+            signal.addEventListener('abort', () => { reject(signal.reason as Error) }, { once: true })
+            work.then(resolve, reject)
+          })
+        } catch (error) {
+          warming.delete(ref)
+          throw error
+        }
+        return ref
+      },
+    },
+  }
   const inputTriggers = ctx.get('inputTriggers') as InputTriggerServiceContract
   ctx.effect(() => inputTriggers.registerSource(source), 'ui-reference: @ source')
+  ctx.effect(() => inputTriggers.registerSource(summarized), 'ui-reference: # source')
 }
 
 type Translate = (key: ReferenceKey, params?: Record<string, unknown>) => string
 
 type ReferenceCandidateValue =
   | { kind: 'file'; fileKind: FileReferenceCandidate['kind']; label: string; mention: string }
-  | { kind: 'session'; label: string; mention: string }
+  | { kind: 'session'; label: string; mention: string; sessionId: SessionId }
 
 /**
  * The breadcrumb of a drilled directory listing, from the workspace root down
@@ -249,6 +319,7 @@ function sessionCandidate(
   now: number,
   home: string | undefined,
   section: string,
+  mention: string,
   t: Translate,
 ) {
   const { unit, n } = relativeTime(updatedAt, now)
@@ -258,11 +329,7 @@ function sessionCandidate(
   const location = candidate.sameWorkspace
     ? undefined
     : candidate.cwd === undefined ? t('candidate.noCwd') : abbreviateHomePath(candidate.cwd, home)
-  const value: ReferenceCandidateValue = {
-    kind: 'session',
-    label,
-    mention: candidate.mention,
-  }
+  const value: ReferenceCandidateValue = { kind: 'session', label, mention, sessionId: candidate.sessionId }
   return {
     name: label,
     description: location === undefined ? age : `${location} · ${age}`,

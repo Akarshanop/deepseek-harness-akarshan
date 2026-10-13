@@ -17,6 +17,7 @@ Desktop product events use the optional [product analytics service](../product-a
 
 - [Conversation assembly](#conversation-assembly)
 - [Shell and standard props](#shell-and-standard-props)
+- [Split panes and Session colors](#split-panes-and-session-colors)
 - [Temporary composer entries](#temporary-composer-entries)
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
@@ -101,6 +102,13 @@ File chips and editable skill references share a whole-reference hover backgroun
 When another writer owns the Session, the send-error toast asks the user to quit other running DSH instances and retry.
 
 Two independent Escape presses in the focused Chat or Composer stop its current running turn and preserve queued messages. The interval comes from the shortcuts plugin’s `stopSequenceMs` configuration (500 ms by default). A menu, approval, modal, terminal, embedded webpage, composition, repeated key, changed input region, Session or turn breaks the sequence. The shortcut uses the same scoped cancellation as the Stop button. The plugin registers Stop as a fixed action in the `input` display group. Its registration reserves plain Escape against editable shortcuts and supplies the `Esc Esc` sequence shown in the Stop button’s hover and keyboard-focus tooltip.
+
+<a id="split-panes-and-session-colors"></a>
+## Split panes and Session colors
+
+The `conversation` main panel shows every open Session as a pane in one row. The Session selected in the sidebar is rendered by the `main.conversation` child; every other open Session is bound to its own `SessionReference` through `SessionProvider`. Open Sessions stay open until their **×** button, at the pane's top-right below the header, closes them. Selecting a Session that is not open appends it on the right and keeps the earlier ones; selecting an open one leaves the row as it is. Either way the row scrolls to the selected pane and the pane glows for about 1.8 seconds in its identity color. Closing the selected Session selects its right neighbor, or its left neighbor when it was last; the last open Session has no ×. Panes are also added from the **+** button at the panel's right edge, which also offers **New session** (a blank Session in the selected Session's Workspace, else the first), or by dropping a sidebar Session row on the panel. Every pane is one third of the panel wide, never below 320px, so one or two panes fill the panel and four or more scroll sideways along a slider at the bottom. One Session owns one editor, so it is shown in exactly one pane. Blank Sessions and subagent Sessions are not offered by the picker. The order of open Sessions persists in the browser under `dsh.conversation.splitPanes` and is restored once the Session list has arrived; a Session that no longer exists is dropped. Sidebar row clicks are recognized by the row marker `data-row-key="session:<id>"`, which `ui-workspace` owns.
+
+Each non-blank Session has an identity color: a random palette color, preferring the least used, assigned on first sight and saved under `dsh.sessionColors`. The dot at the start of the Session header title, the 2px bar across the top of the pane, and the dot and running spinner on the Session's sidebar row all show it. The dot opens a palette and a custom color input. The color is published as the CSS custom property `--dsh-session-color-<id>` on the document root, with characters outside `[A-Za-z0-9_-]` in the id replaced by `_`, so other packages read it without importing this one.
 
 <a id="temporary-composer-entries"></a>
 ## Temporary composer entries

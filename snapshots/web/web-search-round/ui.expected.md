@@ -1,4 +1,5 @@
 - banner:
+  - button "Change session color"
   - navigation "Session hierarchy": Use web_search once with queries
   - text: Standard mode
   - button "More actions"
@@ -26,3 +27,4 @@
 - button "1 turns 2 steps · {{throughput}} tok/s": 1 turns 2 steps{{throughput}} tok/s
 - button "29 tok · Cache hit 0%": 29 tokCache hit 0%
 - button "0% of context used": 0%
+- button "Open a session side by side"

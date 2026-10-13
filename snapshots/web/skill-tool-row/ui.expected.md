@@ -1,4 +1,5 @@
 - banner:
+  - button "Change session color"
   - navigation "Session hierarchy": Load the editing-cordis-compositions ski
   - button "More actions"
   - button "Open right sidebar"
@@ -28,3 +29,4 @@
 - button "Send message" [disabled]
 - button "1 turns 2 steps"
 - button "310 tok · Cache hit 0%": 310 tokCache hit 0%
+- button "Open a session side by side"

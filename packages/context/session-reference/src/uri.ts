@@ -42,17 +42,17 @@ export function decodeSessionReferenceUri(uri: string): SessionIdType {
 
 /**
  * Render a host-neutral Markdown mention carrying the canonical URI.
- * @param reference - structured id and optional display label.
- * @returns escaped `@[label](uri)` mention.
+ * @param reference - structured id, optional display label, and whether the source is summarized.
+ * @returns escaped `@[label](uri)` mention, or `#[label](uri)` for a summarized source.
  */
 export function formatSessionReferenceMention(reference: SessionReferenceInput): string {
   const label = escapeLabel(reference.label ?? reference.sessionId)
-  return `@[${label}](${encodeSessionReferenceUri(reference.sessionId)})`
+  return `${reference.compact === true ? '#' : '@'}[${label}](${encodeSessionReferenceUri(reference.sessionId)})`
 }
 
 /** Result of extracting canonical mentions from plain text. */
 export interface ParsedSessionReferenceText {
-  /** Text with opaque tokens replaced by readable `@label` spans. */
+  /** Text with opaque tokens replaced by readable `@label` spans, or `#label` for a summarized source. */
   text: string
   /** Structured references in first-appearance order, before service deduplication. */
   references: SessionReferenceInput[]
@@ -68,9 +68,10 @@ export interface ParsedSessionReferenceText {
  */
 export function parseSessionReferenceText(text: string): ParsedSessionReferenceText {
   const references: SessionReferenceInput[] = []
-  const pattern = /@\[((?:\\.|[^\\\]])*)\]\((dsh-session:[^\s)]*)\)|(dsh-session:[A-Za-z0-9_-]+)/gu
+  const pattern = /([@#])\[((?:\\.|[^\\\]])*)\]\((dsh-session:[^\s)]*)\)|(dsh-session:[A-Za-z0-9_-]+)/gu
   const rendered = text.replace(pattern, (
     _match,
+    marker: string | undefined,
     rawLabel: string | undefined,
     markdownUri: string | undefined,
     bareUri: string | undefined,
@@ -80,8 +81,10 @@ export function parseSessionReferenceText(text: string): ParsedSessionReferenceT
     if (uri === undefined) throw new SessionReferenceError('session reference URI is missing', 'SESSION_REFERENCE_INVALID_REFERENCE')
     const sessionId = decodeSessionReferenceUri(uri)
     const label = rawLabel === undefined ? sessionId : unescapeLabel(rawLabel)
-    references.push({ sessionId, label })
-    return `@${label}`
+    // A bare URI has no marker and quotes the source like `@`.
+    const compact = marker === '#'
+    references.push({ sessionId, label, ...compact ? { compact } : {} })
+    return `${compact ? '#' : '@'}${label}`
   })
   return { text: rendered, references }
 }

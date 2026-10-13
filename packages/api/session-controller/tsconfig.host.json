@@ -20,7 +20,8 @@
     "src/media-references.ts",
     "src/model-selection-projection.ts",
     "src/archived-session-gate.ts",
-    "src/skill-catalog.ts"
+    "src/skill-catalog.ts",
+    "src/side-questions.ts"
   ],
   "references": [
     {
@@ -91,6 +92,9 @@
     },
     {
       "path": "../../skill/skill"
+    },
+    {
+      "path": "../../storage/storage-domain"
     },
     {
       "path": "../../subagent/subagent"

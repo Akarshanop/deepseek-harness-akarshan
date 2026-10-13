@@ -1,4 +1,5 @@
 - banner:
+  - button "Change session color"
   - navigation "Session hierarchy": Use the ask_user_question tool to
   - button "More actions"
   - button "Open right sidebar"
@@ -31,3 +32,4 @@
 - button "1 turns 1 steps · {{throughput}} tok/s": 1 turns 1 steps{{throughput}} tok/s
 - button "4.4K tok · Cache hit 97%": 4.4K tokCache hit 97%
 - button "3% of context used": 3%
+- button "Open a session side by side"

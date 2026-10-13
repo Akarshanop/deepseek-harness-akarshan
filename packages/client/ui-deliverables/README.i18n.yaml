@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/client/ui-deliverables/README.md
 /:
-  en: 91a4da87e2e078ed
-  zh: 8d489c6cdf208c4d
+  en: aec55a1de912a5ba
+  zh: 4ac79b2f4ec8ecba
 /deepseek-ai-dsh-client-ui-deliverables:
   en: baa21bacf9d87975
   zh: caf2b019a43f4009
 /deepseek-ai-dsh-client-ui-deliverables/summary:
-  en: a17b97d16803f911
-  zh: ad80cf4bcb5a8018
+  en: 8113544773e71c5f
+  zh: a0203dd5d4f51014
 /deepseek-ai-dsh-client-ui-deliverables/table-of-contents:
   en: d152484eb41ac6b4
   zh: 09388d293f9be9cb
@@ -26,12 +26,15 @@
 /deepseek-ai-dsh-client-ui-deliverables/use-this-package/the-review-tab:
   en: 231547659321f3a8
   zh: bc5935cdd46ada56
+/deepseek-ai-dsh-client-ui-deliverables/use-this-package/file-explanations:
+  en: 59e32383de5d02d8
+  zh: 9a3459527135153b
 /deepseek-ai-dsh-client-ui-deliverables/use-this-package/inline-code-links:
   en: ef13aac8ac36a5c3
   zh: 1e2ae4b3eaf98818
 /deepseek-ai-dsh-client-ui-deliverables/understand-the-implementation:
-  en: 13e06395a2c447bf
-  zh: c2c29bbfbfabe756
+  en: f654583a69666577
+  zh: 5c05f4788dcc59e6
 /deepseek-ai-dsh-client-ui-deliverables/further-exploration:
   en: 476b59e8671db982
   zh: b3d0495a03e8940a
@@ -50,9 +53,21 @@
 /deepseek-ai-dsh-client-ui-deliverables/model-experience/clickable-file-reference-guidance/kv-cache-effect:
   en: 52626a05acc8b320
   zh: 6a8e62b0d47d5297
+/deepseek-ai-dsh-client-ui-deliverables/model-experience/auxiliary-explanation-request:
+  en: d977fca4375de6c5
+  zh: e86e574a479ac83c
+/deepseek-ai-dsh-client-ui-deliverables/model-experience/auxiliary-explanation-request/what-the-model-sees:
+  en: f87763f22de17843
+  zh: e614d25dfda392cd
+/deepseek-ai-dsh-client-ui-deliverables/model-experience/auxiliary-explanation-request/token-effect:
+  en: adc3aa289ed718e0
+  zh: b684ef7b011a5ae1
+/deepseek-ai-dsh-client-ui-deliverables/model-experience/auxiliary-explanation-request/kv-cache-effect:
+  en: 1980af81032403ec
+  zh: d69d1e3ea28a882d
 /deepseek-ai-dsh-client-ui-deliverables/known-limitations-and-deferred-work:
-  en: dcebaf6fd7885452
-  zh: 017ef058d4dcdc25
+  en: 71080a80afbe959c
+  zh: b6f806f751b5519c
 /deepseek-ai-dsh-client-ui-deliverables/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: 3bb0c20c93f16f98

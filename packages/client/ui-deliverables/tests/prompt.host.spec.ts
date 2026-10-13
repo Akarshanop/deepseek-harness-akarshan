@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises'
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it } from 'vitest'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import { apply, inject } from '../src/index.ts'
+import { apply, Config, inject } from '../src/index.ts'
 
 let ctx: Context | undefined
 
@@ -24,7 +24,7 @@ describe('ui-deliverables node plugin', () => {
     ctx.provide('fs', {} as never)
     ctx.provide('sandboxPolicy', {} as never)
     ctx.provide('workspaceChanges', {} as never)
-    const mounted = ctx.plugin({ apply, inject })
+    const mounted = ctx.plugin({ apply, inject }, Config(undefined))
     await mounted.await()
 
     const section = (await ctx.systemPrompt.assemble()).sections

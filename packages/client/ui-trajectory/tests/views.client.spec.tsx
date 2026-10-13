@@ -413,6 +413,8 @@ function mount(fixture: Awaited<ReturnType<typeof bench>>) {
         renderSlot={() => null}
         open={vi.fn()}
         selectView={conversation.actions.setView}
+        useSessionColors={bindSnapshotSelector(createSnapshotStore<Readonly<Record<string, string>>>({}))}
+        setSessionColor={vi.fn()}
         t={tConversation}
       />
       <ConversationSession

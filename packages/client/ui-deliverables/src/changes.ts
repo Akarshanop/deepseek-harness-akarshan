@@ -12,6 +12,12 @@ export const CHANGES_DIFF_PATH = '/api/changes.diff'
 export const CHANGES_OPEN_PATH = '/api/changes.open'
 
 /**
+ * Authenticated GET route serving the model-written explanation of one listed file's change. A request
+ * waits for the explanation when it is still being written, so a response is the final answer.
+ */
+export const CHANGES_EXPLAIN_PATH = '/api/changes.explain'
+
+/**
  * Browser-relative form of {@link CHANGED_FILES_PATH}; see
  * .agents/notes/implemented/architecture/2026-09-14-web-document-relative-app-routes.md.
  */
@@ -23,6 +29,9 @@ export const CHANGES_DIFF_ROUTE = CHANGES_DIFF_PATH.slice(1)
 /** Browser-relative form of {@link CHANGES_OPEN_PATH}. */
 export const CHANGES_OPEN_ROUTE = CHANGES_OPEN_PATH.slice(1)
 
+/** Browser-relative form of {@link CHANGES_EXPLAIN_PATH}. */
+export const CHANGES_EXPLAIN_ROUTE = CHANGES_EXPLAIN_PATH.slice(1)
+
 /** Resource-address prefix of a turn's review tab in the right Sidebar. */
 export const CHANGES_REVIEW_ADDRESS = 'dsh-resource://changes-review/session/'
 
@@ -31,6 +40,14 @@ export type ChangesSummary = Pick<WorkspaceChangesSummary, 'turn' | 'files' | 't
 
 /** The comparison the route serves, as the Host computed it. */
 export type ChangesDiff = WorkspaceFileDiff
+
+/** What a model wrote about one changed file: its role in the project and the changes the turn made to it. */
+export interface ChangesExplanation {
+  /** What the file is for; empty when the model gave no separate statement of it. */
+  purpose: string
+  /** One entry per logical change, in the order the model listed them. */
+  changes: string[]
+}
 
 /** Coordinates of one turn's review: the viewed Session, the announcing event, and the turn it summarized. */
 export interface ChangesReviewCoordinates {
@@ -94,6 +111,17 @@ export function isChangesDiff(value: unknown): value is ChangesDiff {
 }
 
 /**
+ * Validate an explanation read from the explanation route.
+ * @param value - decoded JSON.
+ * @returns whether the value holds a purpose text and a list of change texts.
+ */
+export function isChangesExplanation(value: unknown): value is ChangesExplanation {
+  if (!isRecord(value)) return false
+  const { purpose, changes } = value
+  return typeof purpose === 'string' && Array.isArray(changes) && changes.every(change => typeof change === 'string')
+}
+
+/**
  * Validate the `workspace/changes` event data read from a Session log.
  * @param value - decoded durable event data.
  * @returns whether the event names a turn.
@@ -121,6 +149,17 @@ export function changesSummaryUrl(sessionId: SessionId, seq: number): string {
  */
 export function changesDiffUrl(sessionId: SessionId, seq: number, index: number): string {
   return `${CHANGES_DIFF_ROUTE}?${new URLSearchParams({ sessionId, seq: String(seq), index: String(index) })}`
+}
+
+/**
+ * Build authenticated coordinates for one listed file's explanation.
+ * @param sessionId - owning Session.
+ * @param seq - workspace/changes event sequence.
+ * @param index - original index in the summary's files array.
+ * @returns document-relative explanation route.
+ */
+export function changesExplainUrl(sessionId: SessionId, seq: number, index: number): string {
+  return `${CHANGES_EXPLAIN_ROUTE}?${new URLSearchParams({ sessionId, seq: String(seq), index: String(index) })}`
 }
 
 /**

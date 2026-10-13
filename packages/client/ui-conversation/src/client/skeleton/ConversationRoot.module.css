@@ -80,6 +80,17 @@
   padding-inline-start: max(0px, calc(var(--dsh-frame-leading-clearance, 0px) - 20px));
 }
 
+/* Identity color across the top of the pane, matching the dot and the sidebar row. */
+.colorBar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 2;
+  height: 2px;
+  pointer-events: none;
+}
+
 .titleCluster {
   display: flex;
   flex: 1;

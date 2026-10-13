@@ -12,9 +12,11 @@ import { SessionId } from '@deepseek-ai/dsh-session/types'
 import { fileAddressFor } from '@deepseek-ai/dsh-util-workspace-path'
 import type { WorkspaceDiffHunk } from '@deepseek-ai/dsh-workspace-changes/types'
 import {
-  changesDiffUrl, changesReviewAddress, changesSummaryUrl, parseChangesReviewAddress, type ChangesDiff, type ChangesSummary,
+  changesDiffUrl, changesExplainUrl, changesReviewAddress, changesSummaryUrl, parseChangesReviewAddress,
+  type ChangesDiff, type ChangesExplanation, type ChangesSummary,
 } from '../src/changes.ts'
 import { ChangesDiffStore } from '../src/client/changes-diff.ts'
+import { ChangesExplainStore } from '../src/client/changes-explain.ts'
 import { ChangesSummaryStore } from '../src/client/changes-summary.ts'
 import { PresentedOpenController } from '../src/client/present-open.ts'
 import {
@@ -86,12 +88,13 @@ describe('review store', () => {
   it('seeds a tab on its first navigation, applies later ones, toggles views, and forgets', () => {
     const store = createReviewStore().create()
     store.actions.navigated(TAB, 1, 2)
-    expect(store.getSnapshot().byTab[TAB]).toEqual({ index: 2, split: true, wrap: false, navigated: 1 })
+    expect(store.getSnapshot().byTab[TAB]).toEqual({ index: 2, split: true, wrap: false, explain: true, navigated: 1 })
     store.actions.toggledSplit(TAB)
     store.actions.toggledWrap(TAB)
+    store.actions.toggledExplain(TAB)
     store.actions.selected(TAB, 0)
     store.actions.navigated(TAB, 2, 1)
-    expect(store.getSnapshot().byTab[TAB]).toEqual({ index: 1, split: false, wrap: true, navigated: 2 })
+    expect(store.getSnapshot().byTab[TAB]).toEqual({ index: 1, split: false, wrap: true, explain: false, navigated: 2 })
     store.actions.forget(TAB)
     expect(store.getSnapshot().byTab[TAB]).toBeUndefined()
     expect(() => { store.actions.selected(TAB, 0) }).toThrow('no review state')
@@ -139,15 +142,19 @@ describe('ReviewTab', () => {
   function mount(options: {
     summaries?: ChangesSummaryStore
     diffs?: ChangesDiffStore
+    explanations?: ChangesExplainStore
     controller?: PresentedOpenController
     locale?: typeof en
     params?: unknown
     revision?: number
     address?: string
     cwd?: string | undefined
+    /** The Session whose sidebar hosts the tab; defaults to the Session the address names. */
+    hostSessionId?: SessionId
   } = {}) {
     const summaries = options.summaries ?? new ChangesSummaryStore()
     const diffs = options.diffs ?? new ChangesDiffStore()
+    const explanations = options.explanations ?? new ChangesExplainStore()
     const controller = options.controller ?? new PresentedOpenController()
     const store = createReviewStore().create()
     const aborter = new AbortController()
@@ -159,13 +166,19 @@ describe('ReviewTab', () => {
     const injected = {
       loadChangesSummary: vi.fn<ReviewInjected['loadChangesSummary']>(() => Promise.resolve()),
       loadChangesDiff: vi.fn<ReviewInjected['loadChangesDiff']>(() => Promise.resolve()),
+      loadChangesExplain: vi.fn<ReviewInjected['loadChangesExplain']>(() => Promise.resolve()),
       reloadPresentedHost: vi.fn<ReviewInjected['reloadPresentedHost']>(() => Promise.resolve()),
       openChanged: vi.fn<ReviewInjected['openChanged']>(() => Promise.resolve(null)),
     }
+    const hostSessionId = options.hostSessionId ?? SESSION
     const sessions: SessionListState = {
-      ids: [SESSION],
-      byId: { [SESSION]: { id: SESSION, displayTitle: 'Workspace', cwd: options.cwd ?? '/work/app',
-        running: false, retainedBy: {}, blank: false, updatedAt: 0 } },
+      ids: hostSessionId === SESSION ? [SESSION] : [hostSessionId, SESSION],
+      byId: {
+        [SESSION]: { id: SESSION, displayTitle: 'Workspace', cwd: options.cwd ?? '/work/app',
+          running: false, retainedBy: {}, blank: false, updatedAt: 0 },
+        [hostSessionId]: { id: hostSessionId, displayTitle: 'Workspace', cwd: hostSessionId === SESSION ? options.cwd ?? '/work/app' : '/work/other',
+          running: false, retainedBy: {}, blank: false, updatedAt: 0 },
+      },
       phase: 'ready', projectionsBySession: {},
     }
     const navigation = { address: options.address ?? ADDRESS, params: options.params, revision: options.revision ?? 1 }
@@ -175,12 +188,13 @@ describe('ReviewTab', () => {
         sidebar: { expanded: true, fullscreen: false }, panel: { id: 'pane-1' },
         tab: { id: TAB, kind: 'changes-review', contentId: options.address ?? ADDRESS, title: 'Review', visible: true, navigation, signal: aborter.signal, actions: tabActions },
       }),
-      sessionId: SESSION,
+      sessionId: hostSessionId,
       useSessions: <T,>(select: (state: SessionListState) => T): T => select(sessions),
       useStore: hookOf(store),
       actions: store.actions,
       useChangesSummary: hookOf(summaries.state),
       useChangesDiff: hookOf(diffs.state),
+      useChangesExplain: hookOf(explanations.state),
       usePresentedOpen: hookOf(controller.state),
       usePresentedHost: hookOf(controller.host),
       t: makeTranslate(options.locale ?? en),
@@ -188,7 +202,7 @@ describe('ReviewTab', () => {
     } as ReviewTabProps
     const view = render(<ReviewTab {...runtime} />)
     return {
-      view, injected, tabActions, store, aborter, summaries, diffs, controller,
+      view, injected, tabActions, store, aborter, summaries, diffs, explanations, controller,
       rerender: () => { view.rerender(<ReviewTab {...runtime} />) },
     }
   }
@@ -229,6 +243,22 @@ describe('ReviewTab', () => {
     expect(lines[1]?.textContent).toBe('2-b')
     expect(lines[4]?.textContent).toBe('34 d')
     expect(view.container.querySelector('[data-review-view]')?.getAttribute('data-review-view')).toBe('unified')
+  })
+
+  it('reads the Session its address names when another Session\'s sidebar hosts the tab', () => {
+    // A card in one pane opens its review in the selected Session's sidebar, so the hosting Session is not the reviewed one.
+    const summaries = new ChangesSummaryStore()
+    summaries.state.set({ [SUMMARY_URL]: summary })
+    const controller = new PresentedOpenController()
+    controller.host.set({ name: 'desktop', available: true, fileManager: 'finder' })
+    const { view, injected, tabActions } = mount({ summaries, controller, hostSessionId: SessionId('host'), params: { index: 1 } })
+    expect(injected.loadChangesSummary).not.toHaveBeenCalled()
+    expect(view.container.querySelector('[data-changes-review]')?.getAttribute('data-review-state')).toBe('ready')
+    expect(injected.loadChangesDiff).toHaveBeenLastCalledWith('viewed', 5, 1)
+    fireEvent.click(view.getByRole('button', { name: 'Open ~/out/big.bin in sidebar' }))
+    expect(tabActions.openResource).toHaveBeenCalledWith(fileAddressFor(SESSION, '/work/app', '/tmp/out/big.bin'))
+    fireEvent.click(view.getByRole('button', { name: 'Native file action' }))
+    expect(injected.openChanged).toHaveBeenCalledWith('viewed', 5, 1, 'open', undefined)
   })
 
   it('draws the split view by default and wraps lines on request, and keeps both choices in the tab store', () => {
@@ -401,6 +431,100 @@ describe('ReviewTab', () => {
     expect(store.getSnapshot().byTab[TAB]).toBeDefined()
     aborter.abort()
     expect(store.getSnapshot().byTab[TAB]).toBeUndefined()
+  })
+
+  describe('explanation', () => {
+    const EXPLAIN_URL = changesExplainUrl(SESSION, 5, 0)
+    const explanation: ChangesExplanation = {
+      purpose: 'Entry point that wires the `App` together.',
+      changes: ['Renames `start` to `boot`.', 'Drops the unused import.'],
+    }
+    const withSummary = (explanations = new ChangesExplainStore(), params?: unknown) => {
+      const summaries = new ChangesSummaryStore()
+      summaries.state.set({ [SUMMARY_URL]: summary })
+      return mount({ summaries, explanations, params })
+    }
+    const panelOf = (view: ReturnType<typeof mount>['view']) => view.queryByRole('complementary', { name: en['review.explainAria'] })
+
+    it('asks for the shown file\'s explanation and draws it beside the comparison as plain text with code spans', () => {
+      const { view, injected, explanations } = withSummary()
+      expect(injected.loadChangesExplain).toHaveBeenCalledTimes(1)
+      expect(injected.loadChangesExplain).toHaveBeenLastCalledWith('viewed', 5, 0)
+      expect(panelOf(view)?.getAttribute('aria-busy')).toBe('true')
+      expect(view.getByText(en['explain.loading'])).toBeTruthy()
+      act(() => { explanations.state.set({ [EXPLAIN_URL]: explanation }) })
+      const panel = panelOf(view)!
+      expect(panel.hasAttribute('aria-busy')).toBe(false)
+      expect(view.getByText(en['explain.title'])).toBeTruthy()
+      expect(view.getByText(en['explain.purpose'])).toBeTruthy()
+      expect(view.getByText(en['explain.changes'])).toBeTruthy()
+      expect([...panel.querySelectorAll('li')].map(item => item.textContent)).toEqual(['Renames start to boot.', 'Drops the unused import.'])
+      expect([...panel.querySelectorAll('code')].map(code => code.textContent)).toEqual(['App', 'start', 'boot'])
+      // The panel shares the content row with the comparison.
+      expect(panel.parentElement?.querySelector('[data-review-view], [role="status"]')).toBeTruthy()
+      expect(injected.loadChangesExplain).toHaveBeenCalledTimes(1)
+    })
+
+    it('omits the section a model left empty, and never reads the text as markup', () => {
+      const { view, explanations } = withSummary()
+      act(() => { explanations.state.set({ [EXPLAIN_URL]: { purpose: '', changes: ['<img src=x onerror=alert(1)> done'] } }) })
+      expect(view.queryByText(en['explain.purpose'])).toBeNull()
+      expect(view.getByText('<img src=x onerror=alert(1)> done')).toBeTruthy()
+      expect(panelOf(view)?.querySelector('img')).toBeNull()
+      act(() => { explanations.state.set({ [EXPLAIN_URL]: { purpose: 'Only a purpose.', changes: [] } }) })
+      expect(view.getByText('Only a purpose.')).toBeTruthy()
+      expect(view.queryByText(en['explain.changes'])).toBeNull()
+    })
+
+    it('keeps the comparison and offers a retry when the explanation cannot be written', () => {
+      const { view, injected, explanations } = withSummary()
+      act(() => { explanations.state.set({ [EXPLAIN_URL]: 'error' }) })
+      expect(view.getByText(en['explain.error'])).toBeTruthy()
+      expect(view.container.querySelector('[data-changes-review]')?.getAttribute('data-review-state')).toBe('ready')
+      fireEvent.click(view.getByRole('button', { name: en['presented.retry'] }))
+      expect(injected.loadChangesExplain).toHaveBeenCalledTimes(2)
+    })
+
+    it('shows no panel and no toggle when the Host has no explanation to give', () => {
+      const { view, explanations } = withSummary()
+      expect(view.getByRole('button', { name: en['review.explainAria'] })).toBeTruthy()
+      act(() => { explanations.state.set({ [EXPLAIN_URL]: 'missing' }) })
+      expect(panelOf(view)).toBeNull()
+      expect(view.queryByRole('button', { name: en['review.explainAria'] })).toBeNull()
+    })
+
+    it('does not ask for the explanation of a binary or oversized file', () => {
+      for (const params of [{ index: 1 }, { index: 3 }]) {
+        const { view, injected } = withSummary(new ChangesExplainStore(), params)
+        expect(injected.loadChangesExplain).not.toHaveBeenCalled()
+        expect(panelOf(view)).toBeNull()
+        expect(view.queryByRole('button', { name: en['review.explainAria'] })).toBeNull()
+        view.unmount()
+      }
+    })
+
+    it('hides and shows the panel from the header, and reads nothing while it is hidden', () => {
+      const { view, injected, store, explanations } = withSummary()
+      act(() => { explanations.state.set({ [EXPLAIN_URL]: explanation }) })
+      const toggle = view.getByRole('button', { name: en['review.explainAria'] })
+      expect(toggle.getAttribute('aria-pressed')).toBe('true')
+      fireEvent.click(toggle)
+      expect(store.getSnapshot().byTab[TAB]?.explain).toBe(false)
+      expect(panelOf(view)).toBeNull()
+      expect(view.getByRole('button', { name: en['review.explainAria'] }).getAttribute('aria-pressed')).toBe('false')
+      act(() => { store.actions.selected(TAB, 2) })
+      expect(injected.loadChangesExplain).toHaveBeenCalledTimes(1)
+      fireEvent.click(view.getByRole('button', { name: en['review.explainAria'] }))
+      expect(panelOf(view)).toBeTruthy()
+      expect(injected.loadChangesExplain).toHaveBeenLastCalledWith('viewed', 5, 2)
+    })
+
+    it('reads the explanation under the reviewed Session when another Session\'s sidebar hosts the tab', () => {
+      const summaries = new ChangesSummaryStore()
+      summaries.state.set({ [SUMMARY_URL]: summary })
+      const { injected } = mount({ summaries, hostSessionId: SessionId('host') })
+      expect(injected.loadChangesExplain).toHaveBeenCalledWith('viewed', 5, 0)
+    })
   })
 
   it('refuses an address it did not mint', () => {

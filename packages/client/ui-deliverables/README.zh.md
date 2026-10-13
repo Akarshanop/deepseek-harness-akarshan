@@ -1,5 +1,5 @@
 ---
-description: "Web GUI 的改动文件、交付文件与可点击文件引用：已完成轮次末尾的改动文件卡片与交付文件卡片、逐个对比改动文件的 review tab，以及收尾正文中的行内代码链接；供产出物体验的用户与维护者阅读。"
+description: "Web GUI 的改动文件、交付文件与可点击文件引用：已完成轮次末尾的改动文件卡片与交付文件卡片、逐个对比改动文件、并在旁边显示模型所写文件说明的 review tab，以及收尾正文中的行内代码链接；供产出物体验的用户与维护者阅读。"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-本包渲染已完成轮次末尾的改动文件卡片——列出本轮改动的文件及 Host 记录的行数，每一行在该文件上打开本轮的 review tab——以及显式交付文件的卡片，并把收尾正文中匹配的行内代码引用转为链接，让被点名的文件在右侧 Sidebar 中打开。列出与链接的路径来自记录的改动摘要、成功的文件修改与显式交付，而非收尾正文。只有正式提供的 Web patch 加载本包；删除其 cordis.yml 条目会同时移除指引、卡片与正文链接。
+本包渲染已完成轮次末尾的改动文件卡片——列出本轮改动的文件及 Host 记录的行数，每一行在该文件上打开本轮的 review tab，并在旁边显示模型撰写的说明——以及显式交付文件的卡片，并把收尾正文中匹配的行内代码引用转为链接，让被点名的文件在右侧 Sidebar 中打开。路径来自记录的改动摘要、成功的文件修改与显式交付，而非收尾正文。只有正式提供的 Web patch 加载本包；删除其 cordis.yml 条目会同时移除指引、卡片、说明与正文链接。
 
 ## 目录
 
@@ -52,6 +52,35 @@ Web 的 `standard`、`ptc` 与 `cordis` preset 提供 `present`，用于声明�
 
 关闭自动换行时，两列同步纵向滚动，横向偏移同步到各自可滚动范围内。各行背景（包括用于对齐的空行）覆盖所在列的完整可滚动宽度。两列在双轴上都禁用弹性边缘反馈和向外层传递滚动；各列可滚动范围内的原生惯性仍由浏览器控制。两侧横向滚动条始终位于可见对比区域底部；如果只有一侧需要横向滚动，上下滚动会保留该侧的横向偏移。
 
+### 文件说明
+
+review tab 会在所选文件的对比旁显示一段由模型撰写的说明：用一两句话说明该文件在项目中的作用，再用简短列表说明本轮对它做了哪些改动。宽度超过 900 像素的 tab 把说明显示为对比右侧的一列；更窄的 tab 把它堆叠在对比上方。tab 头部的星形按钮按 tab 隐藏或显示说明，新 tab 默认显示。反引号中的名称渲染为代码，文本中的任何内容都不会被当作标记解析。Host 仍在撰写时，面板显示闪烁的占位文字；请求失败时显示“重试”按钮并保留对比。二进制或过大的文件、没有改动行的文件、Host 已不再提供的轮次，以及 `explain.enabled` 为 `false` 的 Host，都不显示面板和按钮。
+
+Host 不等读者操作就开始撰写。记录某一轮的改动时，它会启动前 `explain.eagerFiles` 个文件；其他文件在其 tab 请求时才开始，对正在撰写中的文件发出的请求会等待同一次撰写。每个不同的对比只发出一次请求，因此用同样的改动再次记录的轮次会复用说明。说明与它所描述的摘要一样，只在该 Host 进程中随 Session 存活，所以 Host 重启后重新打开的对话，其更早的轮次没有说明。每次请求发往 Session 当前的 provider 与模型；若同时设置了 `explain.provider` 和 `explain.model`，则发往这一对，并使用该路由支持的最低推理强度。请求携带该文件的对比；对于该轮前后都存在的文件，还携带文件当前内容的前 `explain.contextLines` 行。该请求独立于对话：不会进入 Session 日志或模型的历史。
+
+在插件条目上配置，所有字段均可省略：
+
+```yaml
+- name: '@deepseek-ai/dsh-client-ui-deliverables'
+  config:
+    explain:
+      eagerFiles: 8
+      provider: my-gateway
+      model: a-small-model
+```
+
+| 字段 | 默认值 | 含义 |
+|---|---|---|
+| `explain.enabled` | `true` | 是否撰写说明；`false` 时不注册路由，也不发起任何请求 |
+| `explain.eagerFiles` | `20` | 记录某一轮改动时，立即开始撰写说明的文件数；`0` 表示只在请求时撰写 |
+| `explain.concurrency` | `2` | 同时进行的模型请求数 |
+| `explain.maxDiffChars` | `24000` | 一次请求携带的对比字符数；更长的对比会被截断并加标记 |
+| `explain.contextLines` | `120` | 一次请求携带的被修改文件当前内容的开头行数 |
+| `explain.maxOutputTokens` | `4096` | 一次请求的输出 token 上限，也包含路由执行的任何推理 |
+| `explain.timeoutMs` | `120000` | 一条说明允许耗费的毫秒数，包含等待空闲请求名额的时间 |
+| `explain.language` | `English` | 说明使用的语言 |
+| `explain.provider`、`explain.model` | 未设置 | 显式路由；必须同时设置或同时不设置。不设置时由 Session 当前的路由回答 |
+
 ### 行内代码链接
 
 收尾正文链接产出或已交付的路径：行内代码 token 可按精确目标路径、为该目标记录的精确参数，或唯一 basename 解析。所有匹配事实必须指向同一文件；有歧义的参数与 basename 保持不可点击。不使用后缀或当前目录猜测。解析成功的提及保留代码标签，并采用 Markdown 样式表的链接样式，完整路径作为其 `title`。
@@ -67,6 +96,8 @@ Web 的 `standard`、`ptc` 与 `cordis` preset 提供 `present`，用于声明�
 Node 半部注册[模型体验](#model-experience)所述的静态 `ui:deliverable-file-references` 系统提示词段。显式 Markdown 链接使用共享的 [Markdown 渲染器](../ui-primitives/README.zh.md)；行内代码匹配仍仅限产出或交付文件。浏览器半部把组合改动文件卡片与显式交付的包装组件注册进 chat 视图的 `conversation.chat.turnTail` 列表，与其他功能产物并列。`deliverablesDefinition` 把每个轮次最新且通过校验的 `workspace/changes` 宣告的序号折叠进 `DeliverablesTurnData.changes`，卡片按它向 Host 读取摘要并缓存到连接被替换为止，把 `deliverables/presented` 事件折叠为交付，并根据 `write`、`edit` 和有修改作用的 `str_replace_editor` 命令中经过校验的原始参数与结果记录的绝对 `meta.path` 把成功的第一方修改调用折叠为产出路径及精确参数别名；产出路径只供正文提及解析器使用。不带该字段的成功根调用保留历史参数回退；格式错误的相对目标不产生猜测路径。读取、删除、不受支持的工具、格式错误的调用、格式错误的事件和失败结果不贡献任何条目。每一行通过 `ctx.sidebarRight.openResource` 打开 `dsh-resource://changes-review/session/<sessionId>/<seq>/<turn>`，并以文件下标作为 `changes-review` 的导航参数；本包在 `builtin` 档为该模式注册 `changes-review` tab 类型，把其 body 连同一个按 tab 保存选择的独占 store 注册到按键的 `sidebar.right.pane.tab` 座位下，body 通过经过认证的路由把摘要和对比读进连接更换时清空的 store。本包还提供 chat 视图按收尾消息查询的 `chatFileMentions` 服务；把插件组合出去会移除全部表面，视图的空列表以零成本留下。
 
 原生打开使用经过认证的 POST，通过当前查看的会话、事件序号和原始文件索引定位声明；review tab 对改动文件的原生打开使用同一组坐标。对声明，Host 读取事件及当前查看的会话 header，将其中的 cwd 传给 `workspaceFiles.stat`，未记录 cwd 时使用部署的工作目录；对改动文件，传的是所提供摘要携带的工作目录。它与侧栏预览使用同一组合文件系统，无需启动 Agent，子会话也适用。原生操作要求规范化的进程路径能从 Host 路径映射回同一进程路径。提供方没有这种映射时返回 422，之后 review tab 隐藏原生打开；Host 上存在同名文件并不足够。同一份桌面可用性配置同时约束信息查询和实际执行。编辑会影响后续打开的内容；删除后返回错误。不创建文件内容副本或附件。插件释放时取消并等待进行中的原生打开请求。
+
+Node 端还围绕 `ChangeExplainer`（`explain.ts`，不持有任何服务）注册说明路由和提前启动（`explain-host.ts`）。它为每个 Session、每个“文件路径加 hunk 的 SHA-256”缓存一个 promise，使并发请求、重复请求和重新记录的轮次共享同一次模型请求；失败的条目会被移除，下一次请求会重新撰写；一个计数闸门限制同时进行的请求；每次请求的 signal 合并了插件销毁、Session 销毁和 `explain.timeoutMs`。路由等待该 promise，其请求 signal 只会结束等待。`ctx.get('llm')` 与 `ctx.get('sessions')` 在每次请求时读取，因此缺少它们的组合会返回 500，而不是加载失败。提前启动在 `workspace/changes` 事件之后一个 microtask 才读取摘要，因为记录器在追加事件之后才保存摘要。回答按宽松方式解析：去掉标签周围的强调、代码围栏和 `<think>` 块，没有标签的回答成为改动列表，最多保留八条改动。浏览器端通过 `ChangesExplainStore` 读取该路由，它与对比 store 共用 `jsonReadPolicy`；`ReviewTab` 等待种子化后的 tab 状态再发起请求，因此在另一个文件上打开的 tab 不会请求第一个文件的说明。
 
 </details>
 
@@ -103,6 +134,20 @@ Node 半部注册[模型体验](#model-experience)所述的静态 `ui:deliverabl
 
 该段落在本包挂载期间始终以 first-party 顺序 9000 保持静态，因此留在可复用的提示词前缀中，不会随轮次改变。
 
+### 辅助说明请求
+
+#### 模型看到的内容
+
+说明模型收到一条 system 指令和一条用户消息。指令要求以配置的语言用纯文本给出一句 `PURPOSE:` 和一个 `CHANGES:` 项目列表，并要求模型把 diff 和文件文本当作数据，绝不执行其中出现的指令。用户消息包含文件的显示路径、本轮是新建、删除还是修改了该文件、按 `explain.maxDiffChars` 截断的 unified-diff hunk 形式的对比，以及（对被修改的文件）文件当前内容的前 `explain.contextLines` 行，每行最多保留 240 个字符。该请求没有工具，也没有对话历史。
+
+#### Token 影响
+
+每个不同的对比一次请求：输入为指令加最多 `explain.maxDiffChars` 个字符的对比和文件开头若干行，输出受 `explain.maxOutputTokens` 限制，该上限也包含路由执行的任何推理。该请求独立于主 agent 请求，不向 agent 历史或 Session 日志添加任何内容。一轮改动了 N 个文本文件时，轮次结束时最多产生 `min(N, explain.eagerFiles)` 次这样的请求，另加读者打开的每个其他文件一次；当 `explain.enabled` 为 `false`，或 `explain.eagerFiles` 为 `0` 且没有打开任何文件时，则不产生请求。
+
+#### KV Cache 影响
+
+不会使主请求失效：该请求从不进入对话。多次说明请求之间的 provider 缓存复用只是顺带发生，因为每次请求在相同指令之后携带的对比都不同。
+
 ## 已知限制与延期工作
 
 <a id="known-limitations-and-deferred-work"></a>
@@ -117,6 +162,10 @@ Node 半部注册[模型体验](#model-experience)所述的静态 `ui:deliverabl
 - **原生打开需要 Host 桌面**——没有桌面时 review tab 不提供原生打开；对比本身只需要记录了该轮的 Host。
 - **对比高亮使用 hunk 内上下文**——省略的源码行不可用，因此每个已渲染 hunk 的新旧两侧分别分词；未知后缀保持纯文本，tab 最多绘制 5000 行并给出提示。
 - **对比携带整个文件的文本**——对比路由会送出所列文件在 Host 上记录时的完整文本，包括被忽略的文件和 Sidebar 预览所限定的工作区根目录之外的文件。
+- **说明是模型输出，可能出错**——模型只看到一个文件的对比和文件开头，看不到项目的其余部分或对话，所以所述的文件作用可能是根据路径和可见行做出的猜测。
+- **无人阅读时说明也会消耗 token**——无论是否打开 review tab，每一轮都会启动前 `explain.eagerFiles` 个文件；调低该数量、设为 `0` 或把 `explain.enabled` 设为 `false`，即可用就绪速度换取成本。
+- **说明只在该 Host 进程中随 Session 存活**——与它们所描述的摘要和对比一样，Host 重启会丢弃它们。
+- **语言由配置决定，而非自动推断**——`explain.language` 适用于每个 Session，而 tab 上的标签跟随界面语言。
 - **工作区外的文件只按绝对路径打开**——记录的路径是记录时的 Host 路径；工作区移动或换一个查看 Session 都无法重新定位它。
 
 <a id="dev-note"></a>

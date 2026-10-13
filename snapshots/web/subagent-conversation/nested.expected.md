@@ -1,4 +1,5 @@
 - banner:
+  - button "Change session color"
   - navigation "Session hierarchy":
     - button "Ask a research subagent to"
     - text: /
@@ -17,3 +18,4 @@
 - status:
   - strong: This subagent is read-only for now
   - text: The parent session is offline; reopen it to continue sending messages.
+- button "Open a session side by side"

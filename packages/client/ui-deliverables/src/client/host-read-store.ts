@@ -26,6 +26,30 @@ export interface HostReadPolicy<T> {
   decode(response: Response): Promise<T>
 }
 
+/** The states of a store whose records are JSON values the Host serves from one route. */
+export type JsonReadState<T> = T | 'missing' | 'error' | 'loading'
+
+/**
+ * The read policy of a route that answers 404 for a record the Host does not hold: a 404 is `'missing'`
+ * and is kept, any other failed response or a body that is not a valid record is `'error'`, and a later
+ * request reads an `'error'` again.
+ * @param valid - whether decoded JSON is a record of this kind.
+ * @returns the policy to construct a {@link HostReadStore} with.
+ */
+export function jsonReadPolicy<T>(valid: (value: unknown) => value is T): HostReadPolicy<JsonReadState<T>> {
+  return {
+    loading: 'loading',
+    failed: 'error',
+    retryable: state => state === 'error',
+    decode: async (response) => {
+      if (response.status === 404) return 'missing'
+      if (!response.ok) return 'error'
+      const value: unknown = await response.json()
+      return valid(value) ? value : 'error'
+    },
+  }
+}
+
 /** One browser plugin's reads of one record kind. */
 export class HostReadStore<T> {
   /** Record URLs key the state across Sessions and turns. */

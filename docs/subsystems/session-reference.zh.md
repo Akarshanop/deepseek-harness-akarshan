@@ -22,7 +22,7 @@ interface FileReferenceCandidate {
 
 ## 输入与候选项
 
-`SessionReferenceInput` 是与宿主无关的选择。id 具有权威性；label 是随快照携带的显示元数据。
+`SessionReferenceInput` 是与宿主无关的选择。id 具有权威性；label 是随快照携带的显示元数据。`compact` 输入请求摘要而非原文预览：其规范 mention 为 `#[label](dsh-session:…)`，而 `@[label](…)` 表示引用原文。
 
 ```ts type-equiv
 /** One source session selected by a host. */
@@ -31,6 +31,11 @@ interface SessionReferenceInput {
   sessionId: SessionId
   /** Optional user-facing mention label. */
   label?: string
+  /**
+   * Summarize the source with a separate model request instead of quoting its messages.
+   * The source is read, never written: it gains no compaction event and keeps its own history.
+   */
+  compact?: boolean
 }
 ```
 
@@ -58,13 +63,15 @@ interface SessionReferenceCandidate {
 }
 ```
 
-`sessionReferenceResolver/candidates` Remote 方法向浏览器消费方提供同一发现能力，并为每个候选附上规范提示词 mention。
+`sessionReferenceResolver/candidates` Remote 方法向浏览器消费方提供同一发现能力，并为每个候选附上规范提示词 mention：`mention` 引用原文，`compactMention` 生成摘要。
 
 ```ts type-equiv
 /** One discovery candidate carrying its canonical prompt mention. */
 interface SessionReferenceMentionCandidate extends SessionReferenceCandidate {
   /** Canonical `@[label](dsh-session:…)` mention serialized into the prompt draft. */
   mention: string
+  /** Canonical `#[label](dsh-session:…)` mention that asks for a summary of the session instead of its messages. */
+  compactMention: string
 }
 ```
 
@@ -106,9 +113,11 @@ interface PreparedReferencedMessage {
 }
 ```
 
+`compact` 源由一次独立的模型请求生成摘要，该请求运行在目标 Session 的路由上：先取其已组装的路由，其次是 agent options，最后是其最近记录的请求头。请求只携带有界投影，因此源 Session 只被读取、绝不被写入：它不会新增压缩括号、检查点或引用记录，并保留自己的历史。持久上下文把摘要放在空的 `conversation` 旁边，源记录写作 `retainedMessages: 0` 且所有消息均被省略；引用原文的预览不会出现这种记录，因为保留逻辑总会保留最新消息。没有对话内容的源按普通的空引用准备，不发起请求。
+
 ## 错误
 
-`SessionReferenceError.code` 区分无效配置或输入、自引用、数量限制、源读取失败、预算失败和取消。宿主协议会把这些 code 映射到各自的错误封装，无需检查提示词字节。
+`SessionReferenceError.code` 区分无效配置或输入、自引用、数量限制、源读取失败、预算失败、摘要失败和取消。宿主协议会把这些 code 映射到各自的错误封装，无需检查提示词字节。
 
 ```ts type-equiv
 /** Stable failure codes exposed to host adapters. */
@@ -120,6 +129,7 @@ type SessionReferenceErrorCode =
   | 'SESSION_REFERENCE_READ_FAILED'
   | 'SESSION_REFERENCE_BUDGET_EXCEEDED'
   | 'SESSION_REFERENCE_CANCELLED'
+  | 'SESSION_REFERENCE_COMPACT_FAILED'
 ```
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
@@ -216,9 +226,19 @@ async listCandidates( agent: Agent, query: string = '', limit: number = this.con
  * @returns detached content and optional referenced-session context.
  */
 async prepare( agent: Agent, content: ContentBlock[], references: SessionReferenceInput[], signal?: AbortSignal, ): Promise<PreparedReferencedMessage>
+
+/**
+ * Remote face that writes a `#` source's summary ahead of the send, so picking the session starts the
+ * work and sending reuses its result. The source is read, never written.
+ * @param agent - the composer's session; references to it are rejected.
+ * @param sessionId - the source session to summarize.
+ * @param signal - caller cancellation; the shared request keeps running for the send that follows.
+ * @returns once the summary is ready.
+ */
+@Remote('summarize') async remoteSummarize(agent: Agent, sessionId: SessionId, signal: AbortSignal): Promise<void>
 ```
 
-Types: [Agent](core.zh.md) · [ContentBlock](llm-streaming.zh.md)
+Types: [Agent](core.zh.md) · [ContentBlock](llm-streaming.zh.md) · [SessionId](core.zh.md)
 
 Source: [`packages/context/session-reference/src/index.ts`](../../packages/context/session-reference/src/index.ts)
 <!-- END GENERATED cordis-surface -->

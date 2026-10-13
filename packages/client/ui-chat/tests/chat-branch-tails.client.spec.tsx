@@ -803,6 +803,33 @@ describe('MessageItem arms', () => {
     expect(view.container.querySelector('[data-context-text]')?.textContent).toBe('recalled material')
   })
 
+  it('a summarized recall says its messages were condensed instead of reporting them as lost', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'summary material' }],
+        source: {
+          kind: 'session-reference',
+          form: 'recall',
+          version: 1,
+          references: [
+            { label: '重构 loader', retainedMessages: 0, omittedMessages: 14, truncated: true },
+            { label: '修 CI', retainedMessages: 1, omittedMessages: 9, truncated: true },
+            { label: '空会话', retainedMessages: 0, omittedMessages: 0, truncated: false },
+          ],
+        },
+        producer: { role: 'recall', label: '重构 loader, 修 CI, 空会话' },
+        form: 'recall',
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: /^跨会话召回/ }))
+    const rows = [...view.container.querySelectorAll('[data-context-recalls] li')].map(node => node.textContent)
+    // An empty session and a quoted one that kept its newest message are not summaries.
+    expect(rows).toEqual(['重构 loader已将 14 条消息生成摘要', '修 CI保留 1 条 · 省略 9 条已截断', '空会话保留 0 条 · 省略 0 条'])
+  })
+
   it('unknown nodes retain the generic JSON row', () => {
     const unknownView = render(
       <MessageItem t={t} node={{ kind: 'unknown', seq: 4, type: 'surface/next', data: { x: 1 } } as never} />,

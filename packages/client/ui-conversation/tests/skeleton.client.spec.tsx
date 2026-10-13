@@ -183,6 +183,8 @@ function mount(
   const inputActions = wiring.actions
   const stop = vi.fn()
   const open = vi.fn()
+  const setSessionColor = vi.fn()
+  const sessionColors: Readonly<Record<string, string>> = { [SID]: '#3b82f6' }
   const slotCalls: string[] = []
   const lineageOwners: ConversationHeaderLineageOwnerProps[] = []
   const viewTabs = options.viewTabs ?? [
@@ -215,6 +217,7 @@ function mount(
           useSession={useSession}
           useConversation={useConversation}
           useConversationViews={useConversationViews}
+          useSessionColors={selector => selector(sessionColors)}
           useChat={useChat}
           useTrajectory={useTrajectory}
           useSessions={props.useSessions}
@@ -231,6 +234,7 @@ function mount(
           renderSlot={renderSlot as never}
           open={open}
           selectView={(view) => { store.actions.setView(view) }}
+          setSessionColor={setSessionColor}
           t={t}
         />
       )
@@ -374,7 +378,7 @@ function mount(
   const props: ConversationSlotProps = { ...runtimeProps, renderSlot, renderFactorySlot }
   const view = render(<ConversationMainPanel {...props} />)
   return {
-    view, store, wiring, sink, retargetWorkspace, session, conversation, slotCalls, lineageOwners, seatOwners, open,
+    view, store, wiring, sink, retargetWorkspace, session, conversation, slotCalls, lineageOwners, seatOwners, open, setSessionColor,
     pickerOwner: () => pickerOwner,
     rerender: () => { view.rerender(<ConversationMainPanel {...props} />) },
   }
@@ -475,6 +479,15 @@ describe('ConversationRoot resident composer', () => {
     expect(b.view.queryByRole('button', { name: 'Child' })).toBeNull()
     expect(b.view.getByText('Child').tagName).toBe('SPAN')
     expect(b.view.queryByText('Root')).toBeNull()
+  })
+
+  it('shows the Session identity color in the header and applies a picked color', () => {
+    const b = mount(sessionSnapshotOf())
+    expect(b.view.container.querySelector('[data-session-color-bar]')).toBeTruthy()
+    fireEvent.click(b.view.getByRole('button', { name: zh['color.change'] }))
+    fireEvent.click(b.view.getByRole('button', { name: zh['color.option'].replace('{color}', '#22c55e') }))
+    expect(b.setSessionColor).toHaveBeenCalledWith('#22c55e')
+    expect(b.view.getByRole('button', { name: zh['color.change'] }).getAttribute('aria-expanded')).toBe('false')
   })
 
   it('shows hierarchy only for subagents and opens their ordinary owner', () => {

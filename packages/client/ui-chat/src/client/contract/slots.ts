@@ -297,6 +297,8 @@ export interface ChatViewInjected {
   /** Open one HTTP(S) message link at the selected destination, using an external tab if Sidebar Browser is unavailable. */
   openExternalLink: (url: string) => void
   openFile: (path: string, options?: OpenFileOptions) => Promise<void>
+  /** Send one question about highlighted transcript text; the answer is saved in the Side Q&A view, not the Session log. */
+  askSideQuestion: (selection: string, question: string) => void
   loadOlder: () => void
   /** Jump loader: page history back through seq; resolves when the window covers it. */
   loadThrough: (seq: SessionSeq) => Promise<void>

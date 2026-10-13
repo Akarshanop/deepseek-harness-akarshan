@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Use `dsh-client-ui-reference` when Web users need to mention files, folders, or sessions from one `@` completion menu. It lists files before sessions and keeps either group available when the other cannot load. Picking a file, folder, or session inserts an atomic reference with a stable clipboard form; folder rows also let users descend without closing completion. File rows omit redundant root locations, and session rows show a workspace only when it differs from the current one. Session mentions are validated before model context is captured, while browsing candidates has no model effect.
+Use `dsh-client-ui-reference` when Web users need to mention files, folders, or sessions from one `@` completion menu, or to send a session's summary with `#`. It lists files before sessions and keeps either group available when the other cannot load. Picking a file, folder, or session inserts an atomic reference with a stable clipboard form; folder rows also let users descend without closing completion. Session rows show a workspace only when it differs from the current one. Session mentions are validated before model context is captured, while browsing candidates has no model effect.
 
 ## Table of Contents
 
@@ -33,9 +33,11 @@ A file closes completion as an atomic inline reference displayed with a file gly
 
 A session pick inserts an atomic inline reference whose hidden `ref` and clipboard representation is the canonical `@[label](dsh-session:…)` mention returned by the Host; its visible form is a chat-bubble glyph plus the session title. Sending carries the mention through `session.prompt`, and the session-reference service validates it and captures model context at `agent/pre-step`.
 
+A `#` pick lists the same sessions under "Sessions (summarized)" headings, without files, and inserts an atomic chip labeled `#` plus the session title. Its hidden `ref` and clipboard form is the canonical `#[label](dsh-session:…)` mention the Host returns beside the quoting one. Picking starts the Host's summary of that session at once, with a separate model request; the source session is read and never changed. Sending waits for that summary, with the composer busy meanwhile, and a failed summary blocks the send with its reason. Type `@` to quote the transcript instead.
+
 ### Failure behavior
 
-One unavailable or failed candidate domain yields no rows for that domain while the other still lists. A session-reference preparation failure occurs after prompt acceptance and terminates that agent turn.
+One unavailable or failed candidate domain yields no rows for that domain while the other still lists. A session-reference preparation failure occurs after prompt acceptance and terminates that agent turn, including a failed summary request for a `#` reference.
 
 Click a file reference in the composer to preview its current contents in the right Sidebar. Quoted paths retain their spaces, and paths resolve in the composer Session. Folder and Session references retain their editing behavior.
 
@@ -47,7 +49,7 @@ Click a file reference in the composer to preview its current contents in the ri
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The source keeps candidate encoding internal to the registration effect: the `/client` export is the plugin body (`apply`/`inject`) only.
+The source keeps candidate encoding internal to the registration effect: the `/client` export is the plugin body (`apply`/`inject`) only. It registers two sources: `@` as `reference` and `#` as `session-context`, which share the retained-session guard and the session-row builder, so only the mention, the section headings, and the chip label differ.
 
 ### Candidate flow
 
@@ -57,7 +59,7 @@ Candidate requests require an existing retained Client Session and share one tem
 
 ### Serialization
 
-File picks preserve the natural text defined by the shared `@path` grammar as the hidden serialized and clipboard form. Session picks use the canonical `@[label](dsh-session:…)` mention; serialization never reconstructs identity from the visible title.
+File picks preserve the natural text defined by the shared `@path` grammar as the hidden serialized and clipboard form. Session picks use the canonical `@[label](dsh-session:…)` mention, and `#` picks the `#[label](dsh-session:…)` mention; serialization never reconstructs identity from the visible title, and the `#` chip's visible `#` prefix is display only.
 
 </details>
 
@@ -82,7 +84,7 @@ Indirectly, through Host-owned providers, which own the file guidance and sessio
 
 #### KV Cache effect
 
-Candidate browsing has no model effect. A selected file or session changes only the new user-message suffix and any Host-prepared session-reference context that follows that message; earlier target history remains unchanged.
+Candidate browsing has no model effect. A selected file or session changes only the new user-message suffix and any Host-prepared session-reference context that follows that message; earlier target history remains unchanged. A `#` pick starts one separate summarization request, whose cost and wait [session-reference](../../context/session-reference/README.md#model-experience) documents.
 
 ## Known Limitations and Deferred Work
 

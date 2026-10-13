@@ -73,6 +73,7 @@ async function bench(
       sameWorkspace: false,
       createdAt: CREATED_AT,
       mention: '@[Research](dsh-session:InNvdXJjZSI)',
+      compactMention: '#[Research](dsh-session:InNvdXJjZSI)',
     }],
   })),
   listed: Record<string, {
@@ -85,11 +86,11 @@ async function bench(
 ) {
   const ctx = new Context()
   ctx.provide('sidebarRight', { openResource: vi.fn() })
-  let source: InputTriggerSource | undefined
+  const registered = new Map<string, InputTriggerSource>()
   ctx.provide('inputTriggers', {
     registerSource(candidate: InputTriggerSource) {
-      source = candidate
-      return () => { source = undefined }
+      registered.set(candidate.trigger, candidate)
+      return () => { registered.delete(candidate.trigger) }
     },
   })
   class RemoteService extends Service {
@@ -101,7 +102,10 @@ async function bench(
   }
   new RemoteService(ctx)
   ctx.provide('remote.fileReferences', { list: files })
-  ctx.provide('remote.sessionReferenceResolver', { candidates: sessions })
+  const summarize = vi.fn<(agentId: SessionId, sourceId: SessionId, signal?: AbortSignal) => Promise<RemoteEnvelope<undefined>>>(
+    () => Promise.resolve({ ok: true, value: undefined }),
+  )
+  ctx.provide('remote.sessionReferenceResolver', { candidates: sessions, summarize })
   ctx.provide('locale', new LocaleRuntime(ctx))
   const sessionStore = new TestSessions(async (action) => { await action() }, ctx)
   onTestFinished(async () => {
@@ -117,8 +121,10 @@ async function bench(
   const owner = sessionStore.retainFor(ctx, session.sessionId)
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
-  if (source === undefined) throw new Error('reference source was not registered')
-  return { ctx, fiber, source, sessions: sessionStore, owner }
+  const source = registered.get('@')
+  const summarized = registered.get('#')
+  if (source === undefined || summarized === undefined) throw new Error('reference sources were not registered')
+  return { ctx, fiber, source, summarized, summarize, sessions: sessionStore, owner }
 }
 
 describe('apply', () => {
@@ -128,13 +134,13 @@ describe('apply', () => {
       'remote.sessionReferenceResolver', 'sidebarRight',
     ])
     const { fiber } = await bench()
-    let registered: InputTriggerSource | undefined
+    const registered = new Map<string, InputTriggerSource>()
     const ctx = new Context()
     ctx.provide('sidebarRight', { openResource: vi.fn() })
     ctx.provide('inputTriggers', {
       registerSource(source: InputTriggerSource) {
-        registered = source
-        return () => { registered = undefined }
+        registered.set(source.trigger, source)
+        return () => { registered.delete(source.trigger) }
       },
     })
     class RemoteService extends Service {
@@ -151,9 +157,10 @@ describe('apply', () => {
     ctx.provide('sessions', { list: { getSnapshot: () => ({ byId: {} }) } })
     const ownFiber = ctx.plugin({ inject: [...inject], apply })
     await ownFiber.await()
-    expect(registered).toMatchObject({ trigger: '@', name: 'reference', showGroupTitle: false })
+    expect(registered.get('@')).toMatchObject({ trigger: '@', name: 'reference', showGroupTitle: false })
+    expect(registered.get('#')).toMatchObject({ trigger: '#', name: 'session-context', showGroupTitle: false })
     await ownFiber.dispose()
-    expect(registered).toBeUndefined()
+    expect(registered.size).toBe(0)
     await fiber.dispose()
   })
 
@@ -251,6 +258,7 @@ describe('candidates', () => {
         sameWorkspace: boolean
         createdAt: number
         mention: string
+        compactMention: string
       }[]
     }>((resolve) => {
       releaseSessions = () => {
@@ -263,6 +271,7 @@ describe('candidates', () => {
             sameWorkspace: false,
             createdAt: CREATED_AT,
             mention: '@[Research](dsh-session:InNvdXJjZSI)',
+            compactMention: '#[Research](dsh-session:InNvdXJjZSI)',
           }],
         })
       }
@@ -315,6 +324,7 @@ describe('candidates', () => {
         sameWorkspace: false,
         createdAt: CREATED_AT,
         mention: '@[Research](dsh-session:InNvdXJjZSI)',
+        compactMention: '#[Research](dsh-session:InNvdXJjZSI)',
       }],
     }))
     const { source } = await bench(files, sessions)
@@ -383,6 +393,7 @@ describe('candidates', () => {
         sameWorkspace: false,
         createdAt: CREATED_AT,
         mention: '@[same](dsh-session:InNhbWUi)',
+        compactMention: '#[same](dsh-session:InNhbWUi)',
       }],
     }))
     const { source } = await bench(files, sessions)
@@ -405,6 +416,7 @@ describe('candidates', () => {
         sameWorkspace: true,
         createdAt: CREATED_AT,
         mention: '@[Unlisted run](dsh-session:InVubGlzdGVkIg)',
+        compactMention: '#[Unlisted run](dsh-session:InVubGlzdGVkIg)',
       }],
     }))
     // A row absent from the list has no durable activity time to read.
@@ -427,6 +439,7 @@ describe('candidates', () => {
           sameWorkspace: true,
           createdAt: CREATED_AT,
           mention: '@[Ordinary title](dsh-session:Im9yZGluYXJ5Ig)',
+          compactMention: '#[Ordinary title](dsh-session:Im9yZGluYXJ5Ig)',
         },
         {
           sessionId: sid('worker'),
@@ -436,6 +449,7 @@ describe('candidates', () => {
           sameWorkspace: true,
           createdAt: CREATED_AT,
           mention: '@[researcher](dsh-session:IndvcmtlciI)',
+          compactMention: '#[researcher](dsh-session:IndvcmtlciI)',
         },
       ],
     }))
@@ -482,6 +496,7 @@ describe('candidates', () => {
         sameWorkspace: true,
         createdAt: NOW - 1_000,
         mention: '@[Just now](dsh-session:Imp1c3Qtbm93Ig)',
+        compactMention: '#[Just now](dsh-session:Imp1c3Qtbm93Ig)',
       }],
     }))
     const { source } = await bench(files, sessions, { 'just-now': { updatedAt: NOW - 1_000 } })
@@ -501,6 +516,7 @@ describe('candidates', () => {
         sameWorkspace: true,
         createdAt: CREATED_AT,
         mention: '@[Sibling run](dsh-session:InNpYmxpbmdyIg)',
+        compactMention: '#[Sibling run](dsh-session:InNpYmxpbmdyIg)',
       }],
     }))
     const { source } = await bench(files, sessions)
@@ -659,5 +675,136 @@ describe('reference preview', () => {
     expect(source.openReference?.(session, { ref: '@[Research](dsh-session:abc)', appearance: 'session' })).toBe(false)
     expect(openResource).toHaveBeenCalledTimes(2)
     await fiber.dispose()
+  })
+})
+
+describe('# summarized-session source', () => {
+  const listedSessions = (...rows: SessionReferenceMentionCandidate[]) => vi.fn(() => Promise.resolve({ ok: true as const, value: rows }))
+  type Candidate = SessionReferenceMentionCandidate
+  const candidate = (id: string, label: string, over: Partial<Candidate> = {}): Candidate => ({
+    sessionId: sid(id), label, cwd: `${HOME}/project`, sameWorkspace: false, createdAt: CREATED_AT,
+    mention: `@[${label}](dsh-session:${id})`, compactMention: `#[${label}](dsh-session:${id})`, ...over,
+  })
+
+  it('lists sessions only, never asking for files, under the summarized headings and carrying the # mention', async () => {
+    const files = vi.fn(() => Promise.resolve({ ok: true as const, value: [{ path: 'src', kind: 'directory' as const }] }))
+    const lookup = listedSessions(candidate('ordinary', 'Ordinary title'), candidate('worker', 'Worker', { displayTitle: 'researcher' }))
+    const b = await bench(files, lookup, {
+      ordinary: { updatedAt: UPDATED_AT },
+      worker: { updatedAt: UPDATED_AT, origin: 'subagent', parentId: session.sessionId },
+    })
+    const rows = await b.summarized.candidates(session, request('lec'))
+    expect(files).not.toHaveBeenCalled()
+    expect(lookup).toHaveBeenCalledWith(session.sessionId, 'lec', expect.any(AbortSignal))
+    // Direct subagents come first, as in the @ menu.
+    expect(rows.map(row => [row.section, row.name, row.icon])).toEqual([
+      ['Subagents (summarized)', 'researcher', 'session'],
+      ['Sessions (summarized)', 'Ordinary title', 'session'],
+    ])
+    expect(rows.map(row => JSON.parse(row.value ?? '{}') as unknown)).toEqual([
+      { kind: 'session', label: 'researcher', mention: '#[Worker](dsh-session:worker)', sessionId: 'worker' },
+      { kind: 'session', label: 'Ordinary title', mention: '#[Ordinary title](dsh-session:ordinary)', sessionId: 'ordinary' },
+    ])
+    // The @ source over the same lookup still quotes.
+    const quoted = await b.source.candidates(session, request(''))
+    expect(quoted.map(row => (JSON.parse(row.value ?? '{}') as { mention?: string }).mention).filter(m => m?.startsWith('@['))).toEqual([
+      '@[Worker](dsh-session:worker)', '@[Ordinary title](dsh-session:ordinary)',
+    ])
+  })
+
+  it('dates and locates its rows like the @ menu', async () => {
+    // A session with no recorded working directory carries no cwd at all.
+    const { cwd: _recorded, ...noCwd } = candidate('here', 'Here', { sameWorkspace: true })
+    const lookup = listedSessions(candidate('elsewhere', 'Elsewhere'), noCwd)
+    const b = await bench(undefined, lookup, { elsewhere: { updatedAt: UPDATED_AT }, here: { updatedAt: UPDATED_AT } })
+    const rows = await b.summarized.candidates(session, request(''))
+    expect(rows.map(row => row.description)).toEqual(['~/project · 1h', '1h'])
+  })
+
+  it('inserts an atomic chip that keeps the typed # and the canonical # mention', async () => {
+    const b = await bench(undefined, listedSessions(candidate('source', 'Research')))
+    const [row] = await b.summarized.candidates(session, request(''))
+    const pick = { candidate: row!, session, position: 'inline' as const, via: 'menu' as const, action: 'pick' as const, span: { start: 0, end: 1, draftRev: 1 } }
+    expect(b.summarize).not.toHaveBeenCalled()
+    expect(b.summarized.onPick(pick)).toEqual({
+      insert: {
+        source: 'session-context', ref: '#[Research](dsh-session:source)', label: '#Research', appearance: 'session',
+        clipboardText: '#[Research](dsh-session:source)',
+      },
+    })
+    // Picking starts the Host's summary of that session for the composer's own session right away.
+    expect(b.summarize).toHaveBeenCalledExactlyOnceWith(session.sessionId, 'source', expect.any(AbortSignal))
+    expect(b.summarized.onPick({ ...pick, candidate: { name: 'x' } })).toBeUndefined()
+    const file = { name: 'x', value: JSON.stringify({ kind: 'file', fileKind: 'file', label: 'f', mention: '@f' }) }
+    expect(b.summarized.onPick({ ...pick, candidate: file })).toBeUndefined()
+    await expect(b.summarized.codec?.serialize('#[Research](dsh-session:source)', new AbortController().signal))
+      .resolves.toBe('#[Research](dsh-session:source)')
+    expect(b.summarized.codec?.clipboardText('#[Research](dsh-session:source)')).toBe('#[Research](dsh-session:source)')
+  })
+
+  describe('summary wait', () => {
+    const pickRow = async (b: Awaited<ReturnType<typeof bench>>) => {
+      const [row] = await b.summarized.candidates(session, request(''))
+      b.summarized.onPick({ candidate: row!, session, position: 'inline', via: 'menu', action: 'pick', span: { start: 0, end: 1, draftRev: 1 } })
+    }
+    const REF = '#[Research](dsh-session:source)'
+
+    it('makes the send wait for the summary the pick started, then passes the mention through', async () => {
+      const b = await bench(undefined, listedSessions(candidate('source', 'Research')))
+      const done = Promise.withResolvers<RemoteEnvelope<undefined>>()
+      b.summarize.mockReturnValueOnce(done.promise)
+      await pickRow(b)
+      let settled = false
+      const sending = b.summarized.codec!.serialize(REF, new AbortController().signal).then((text) => { settled = true; return text })
+      await Promise.resolve()
+      expect(settled).toBe(false)
+      done.resolve({ ok: true, value: undefined })
+      await expect(sending).resolves.toBe(REF)
+    })
+
+    it('blocks the send with the Host\'s reason when the summary fails, and lets the Host retry on the next send', async () => {
+      const b = await bench(undefined, listedSessions(candidate('source', 'Research')))
+      b.summarize.mockResolvedValueOnce({ ok: false, error: { code: 'x', message: 'model unavailable', details: {} } })
+      await pickRow(b)
+      await expect(b.summarized.codec!.serialize(REF, new AbortController().signal)).rejects.toThrow('model unavailable')
+      await expect(b.summarized.codec!.serialize(REF, new AbortController().signal)).resolves.toBe(REF)
+    })
+
+    it('stops waiting when the send is cancelled, and passes a chip nobody warmed straight through', async () => {
+      const b = await bench(undefined, listedSessions(candidate('source', 'Research')))
+      b.summarize.mockReturnValueOnce(new Promise(() => undefined))
+      await pickRow(b)
+      const cancel = new AbortController()
+      const sending = b.summarized.codec!.serialize(REF, cancel.signal)
+      cancel.abort(new Error('send cancelled'))
+      await expect(sending).rejects.toThrow('send cancelled')
+      await expect(b.summarized.codec!.serialize('#[Other](dsh-session:other)', new AbortController().signal))
+        .resolves.toBe('#[Other](dsh-session:other)')
+    })
+  })
+
+  it('waits for the retained session\'s history, degrades a failed lookup to no rows, and drops a superseded result', async () => {
+    const opened = Promise.withResolvers<undefined>()
+    const lookup = vi.fn(() => Promise.resolve({ ok: false as const, error: { code: 'gateway/internal', message: 'down', details: {} } }))
+    const b = await bench(undefined, lookup, {}, { initialOpen: () => opened.promise })
+    const pending = b.summarized.candidates(session, request(''))
+    expect(lookup).not.toHaveBeenCalled()
+    opened.resolve(undefined)
+    await expect(pending).resolves.toEqual([])
+    const controller = new AbortController()
+    const late = Promise.withResolvers<RemoteEnvelope<SessionReferenceMentionCandidate[]>>()
+    lookup.mockReturnValueOnce(late.promise as never)
+    const superseded = b.summarized.candidates(session, request('x', { signal: controller.signal }))
+    await vi.waitFor(() => { expect(lookup).toHaveBeenCalledTimes(2) })
+    controller.abort()
+    late.resolve({ ok: true, value: [candidate('late', 'Late')] })
+    await expect(superseded).resolves.toEqual([])
+  })
+
+  it('refuses a session that is not retained or whose history failed to open', async () => {
+    const b = await bench(undefined, listedSessions())
+    await expect(b.summarized.candidates({ sessionId: sid('unretained') }, request(''))).rejects.toThrow('require a retained session')
+    const failed = await bench(undefined, listedSessions(), {}, { snapshot: { openState: 'error', openError: null } })
+    await expect(failed.summarized.candidates(session, request(''))).rejects.toThrow('is not open')
   })
 })

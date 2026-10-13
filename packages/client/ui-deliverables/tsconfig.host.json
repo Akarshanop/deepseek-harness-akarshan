@@ -9,11 +9,16 @@
     "src/index.ts",
     "src/changes.ts",
     "src/presented.ts",
-    "src/present-open.ts"
+    "src/present-open.ts",
+    "src/explain.ts",
+    "src/explain-host.ts"
   ],
   "references": [
     {
       "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../../vendor/schemastery"
     },
     {
       "path": "../connection/tsconfig.host.json"

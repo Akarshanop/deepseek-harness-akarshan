@@ -21,6 +21,7 @@ import {
 } from './agent.ts'
 import { SessionCommandController } from './commands.ts'
 import { SessionControlController } from './control.ts'
+import { SessionSideQuestionController } from './side-questions.ts'
 import { SessionHistoryController } from './history.ts'
 import { SessionFileReferences } from './file-references.ts'
 import { ApiSessionList } from './list.ts'
@@ -34,6 +35,12 @@ import type {
   SessionWorkspacePathApplication,
   SessionAttachmentRequest,
   SessionAttachmentValue,
+  SessionAskSideQuestionRequest,
+  SessionAskSideQuestionValue,
+  SessionDeleteSideQuestionRequest,
+  SessionDeleteSideQuestionValue,
+  SessionListSideQuestionsRequest,
+  SessionListSideQuestionsValue,
   SessionCancelRequest,
   SessionCancelValue,
   SessionControlFrame,
@@ -82,10 +89,18 @@ export interface Config {
   readonly nativeOpen?: boolean
   /** Positive integral milliseconds of list work before yielding between complete rows. */
   readonly listWorkSliceMs?: number
+  /** Output-token cap for one side-question answer. */
+  readonly sideQuestionMaxOutputTokens?: number
+  /** Positive integral milliseconds before one side-question model call is abandoned. */
+  readonly sideQuestionTimeoutMs?: number
 }
 
 /** Deployment policy after schema defaults have been applied. */
-type ResolvedConfig = Config & { readonly listWorkSliceMs: number }
+type ResolvedConfig = Config & {
+  readonly listWorkSliceMs: number
+  readonly sideQuestionMaxOutputTokens: number
+  readonly sideQuestionTimeoutMs: number
+}
 
 /** Host integrations replaceable by direct unit tests. */
 export interface SessionControllerInternals {
@@ -120,6 +135,8 @@ export class SessionController extends TypertRemoteService {
   static Config: z<Config, ResolvedConfig> = z.object({
     nativeOpen: z.boolean(),
     listWorkSliceMs: z.natural().min(1).default(16),
+    sideQuestionMaxOutputTokens: z.natural().min(1).default(4096),
+    sideQuestionTimeoutMs: z.natural().min(1).default(120_000),
   })
 
   private readonly agents: ApiSessionAgentController
@@ -127,6 +144,7 @@ export class SessionController extends TypertRemoteService {
   private readonly controlState: SessionControlController
   private readonly history: SessionHistoryController
   private readonly listState: ApiSessionList
+  private readonly sideQuestions: SessionSideQuestionController
   private readonly openPath: (path: string, signal: AbortSignal) => Promise<void>
   private readonly fileApplications: typeof nativeFileApplications
   private readonly openFileApplication: typeof openNativeFileApplication
@@ -158,6 +176,10 @@ export class SessionController extends TypertRemoteService {
     }, 'session-controller.promotions')
     this.history = new SessionHistoryController(ctx, (observation) => { this.promote(observation) })
     this.listState = new ApiSessionList(ctx, resolved.listWorkSliceMs)
+    this.sideQuestions = new SessionSideQuestionController(ctx, this.agents, {
+      maxOutputTokens: resolved.sideQuestionMaxOutputTokens,
+      timeoutMs: resolved.sideQuestionTimeoutMs,
+    })
     this.fileApplications = internals.fileApplications ?? nativeFileApplications
     this.openFileApplication = internals.openFileApplication ?? openNativeFileApplication
     this.openPath = internals.openPath ?? openNativeAssociatedPath
@@ -442,6 +464,39 @@ export class SessionController extends TypertRemoteService {
   prompt(request: SessionPromptRequest, signal: AbortSignal): Promise<SessionPromptValue> {
     signal.throwIfAborted()
     return this.commands.prompt(request)
+  }
+
+  /**
+   * Ask the model one question about a highlighted passage, with the whole
+   * Session as context, and save the exchange outside the Session log.
+   * @param request - Session, highlighted text, and question.
+   * @param signal - caller cancellation; a cancelled question is not saved.
+   * @returns the saved side question, with `error` set when the model failed.
+   */
+  @Remote('askSideQuestion')
+  askSideQuestion(request: SessionAskSideQuestionRequest, signal: AbortSignal): Promise<SessionAskSideQuestionValue> {
+    signal.throwIfAborted()
+    return this.sideQuestions.ask(request, signal)
+  }
+
+  /**
+   * List one Session's saved side questions.
+   * @param request - Session identity.
+   * @returns the Session's side questions, oldest first.
+   */
+  @Remote('listSideQuestions')
+  listSideQuestions(request: SessionListSideQuestionsRequest): Promise<SessionListSideQuestionsValue> {
+    return this.sideQuestions.list(request)
+  }
+
+  /**
+   * Delete one saved side question.
+   * @param request - Session identity and side-question identity.
+   * @returns whether the side question existed.
+   */
+  @Remote('deleteSideQuestion')
+  deleteSideQuestion(request: SessionDeleteSideQuestionRequest): Promise<SessionDeleteSideQuestionValue> {
+    return this.sideQuestions.delete(request)
   }
 
   /**

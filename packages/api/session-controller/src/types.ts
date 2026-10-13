@@ -632,3 +632,66 @@ export type SessionProjectionValue = JsonValue
 
 /** Application metadata returned by the serving desktop for one file. */
 export type SessionWorkspacePathApplication = NativeFileApplication
+
+/** Identity of one saved side question; minted by the Host when the question is accepted. */
+export type SideQuestionId = Branded<'side-question-id'>
+
+/**
+ * One saved side question. It belongs to a Session but is stored outside that
+ * Session's event log, so it never enters the conversation the Agent sees.
+ */
+export interface SideQuestionRecord {
+  readonly id: SideQuestionId
+  readonly sessionId: SessionId
+  /** ISO-8601 UTC instant the question was accepted. */
+  readonly askedAt: string
+  /** Transcript text the user highlighted when asking. */
+  readonly selection: string
+  /** The question as the user typed it. */
+  readonly question: string
+  /** Exact system prompt sent with the request. */
+  readonly system: string
+  /** Exact final user message sent after the conversation history. */
+  readonly prompt: string
+  /** Number of model-visible Session messages replayed before `prompt`. */
+  readonly contextMessageCount: number
+  readonly provider: string
+  readonly model: string
+  /** Assistant text; empty when the request failed. */
+  readonly answer: string
+  /** User-safe failure message; absent when the request succeeded. */
+  readonly error?: string | undefined
+}
+
+/** Side-question request. */
+export interface SessionAskSideQuestionRequest {
+  readonly sessionId: SessionId
+  /** Highlighted transcript text; must not be blank. */
+  readonly selection: string
+  /** The question about the selection; must not be blank. */
+  readonly question: string
+}
+
+/** Saved side question after the model answered or failed. */
+export type SessionAskSideQuestionValue = SideQuestionRecord
+
+/** Side-question list request. */
+export interface SessionListSideQuestionsRequest {
+  readonly sessionId: SessionId
+}
+
+/** One Session's saved side questions, oldest first. */
+export interface SessionListSideQuestionsValue {
+  readonly questions: readonly SideQuestionRecord[]
+}
+
+/** Side-question deletion request. */
+export interface SessionDeleteSideQuestionRequest {
+  readonly sessionId: SessionId
+  readonly id: SideQuestionId
+}
+
+/** Whether the addressed side question existed. */
+export interface SessionDeleteSideQuestionValue {
+  readonly deleted: boolean
+}

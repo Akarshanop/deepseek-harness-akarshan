@@ -1,4 +1,5 @@
 - banner:
+  - button "Change session color"
   - navigation "Session hierarchy":
     - button "Ask a research subagent to"
     - text: /
@@ -25,3 +26,4 @@
 - 'button "Access mode, current: Custom" [disabled]': Custom
 - button "Stop generating"
 - button "Send message" [disabled]
+- button "Open a session side by side"

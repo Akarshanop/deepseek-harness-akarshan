@@ -15,6 +15,8 @@ import type { ChatSnapshot } from '../contract/snapshot.ts'
 import { TurnNavigator } from './TurnNavigator.tsx'
 import { mergeTurnRailItems } from './turn-rail-items.ts'
 import { useChatScroll } from './use-chat-scroll.ts'
+import { SideQaSelection } from '../side-qa/SideQaSelection.tsx'
+import { SIDE_QA_VIEW_ID } from '../side-qa/SideQaView.tsx'
 import { fileMediaUrl, resolveWorkspacePath } from '@deepseek-ai/dsh-util-workspace-path'
 import css from './ChatView.module.css'
 
@@ -59,7 +61,8 @@ const MOTION_TAIL_MS = 800
  */
 export function ChatView({
   useSession, useChat, useConversation, useSessions, renderSlot,
-  sessionId, openFile, openSkill, openExternalLink, loadOlder, loadThrough, loadImage, inspectCall, chatScroll, forkAt, fileMentions,
+  sessionId, openFile, openSkill, openExternalLink, askSideQuestion, openView, loadOlder, loadThrough, loadImage,
+  inspectCall, chatScroll, forkAt, fileMentions,
   usePresentation, useProjection, t,
 }: ChatViewSlotProps) {
   const order = useChat(s => s.order)
@@ -192,10 +195,11 @@ export function ChatView({
     loadedTurns: turnNavigationItems,
     transcriptView,
   })
+  const frameRef = useRef<HTMLDivElement>(null)
   const flowContext = useMemo<ChatFlowHookContext>(() => ({ motion: scroll.motion }), [scroll.motion])
 
   return (
-    <div className={css.frame}>
+    <div ref={frameRef} className={css.frame}>
       {scroll.initialized && (
         <TurnNavigator
           items={railItems}
@@ -237,6 +241,14 @@ export function ChatView({
           <div className={css.turnSpacer} data-chat-turn-spacer aria-hidden="true" />
         </div>
       </div>
+      <SideQaSelection
+        scope={frameRef}
+        t={t}
+        ask={(selection, question) => {
+          askSideQuestion(selection, question)
+          openView(SIDE_QA_VIEW_ID, 'asked')
+        }}
+      />
       {!scroll.followingTail && (
         <div className={css.toBottomSlot}>
           <button

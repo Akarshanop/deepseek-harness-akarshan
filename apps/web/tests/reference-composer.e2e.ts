@@ -231,6 +231,40 @@ describe.skipIf(MODE === 'record')('web e2e: file and session references through
     expect(tripwire.warnings).toEqual([])
   })
 
+  it('# lists sessions alone under the summarized heading and inserts a chip owned by its own source', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-reference-summarized'))
+    const input = page.locator('[data-composer-input]').first()
+    const menu = page.getByRole('listbox', { name: 'Trigger suggestions' })
+
+    await writeComposerDraft(page, input, '#')
+    await expect.poll(() => menu.getByRole('option').count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(1)
+    // Sessions only, under the heading that says a pick summarizes the session; the file rows `@` lists never appear.
+    await expect.poll(() => menu.textContent()).toContain('Sessions (summarized)')
+    expect(await menu.getByRole('option', { name: /reference\.txt/ }).count()).toBe(0)
+    expect(await menu.textContent()).not.toContain('Files & folders')
+
+    await writeComposerDraft(page, input, '#reference-source')
+    await (await settledSourceOption(menu)).click()
+    // The chip is owned by the `#` source, keeps the typed hash in its label, and carries the session glyph.
+    const summarized = page.locator('[data-composer-chip]').last()
+    await expect.poll(() => summarized.getAttribute('data-composer-chip')).toBe('session-context')
+    await expect.poll(() => summarized.textContent()).toBe(`#${SOURCE_SESSION_ID}`)
+    await expect.poll(() => summarized.locator('svg').count()).toBe(1)
+    await expect.poll(() => input.textContent()).toBe(`#${SOURCE_SESSION_ID} `)
+
+    // A quoted session chip stays owned by the `@` source.
+    await writeComposerDraft(page, input, '@reference-source')
+    await (await settledSourceOption(menu)).click()
+    await expect.poll(() => page.locator('[data-composer-chip]').last().getAttribute('data-composer-chip')).toBe('reference')
+
+    // A hash glued to text is an anchor or an issue number, not a trigger.
+    await writeComposerDraft(page, input, 'see issue#12')
+    await expect.poll(() => menu.count()).toBe(0)
+
+    expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
+  })
+
   it('typing a trigger directly ahead of a chip inserts without disturbing it', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-reference-type-ahead'))
     const input = page.locator('[data-composer-input]').first()

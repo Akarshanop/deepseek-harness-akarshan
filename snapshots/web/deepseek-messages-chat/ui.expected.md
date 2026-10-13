@@ -1,4 +1,5 @@
 - banner:
+  - button "更改会话颜色"
   - navigation "会话层级": 只回复 MESSAGES_WEB_READY，不调用
   - text: 标准模式
   - button "更多操作"
@@ -25,3 +26,4 @@
 - button "1 轮 1 步 · {{throughput}} tok/s": 1 轮 1 步{{throughput}} tok/s
 - button "8.2K tok · 缓存命中 16%": 8.2K tok缓存命中 16%
 - button "上下文已用 1%": 1%
+- button "并排打开会话"

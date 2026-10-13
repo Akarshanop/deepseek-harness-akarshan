@@ -1,4 +1,5 @@
 - banner:
+  - button "Change session color"
   - navigation "Session hierarchy": Markdown image policy
   - button "More actions"
   - button "Open right sidebar"
@@ -48,3 +49,4 @@
 - button "Select model, current DeepSeek-V4-Flash": DeepSeek-V4-Flash
 - button "Send message" [disabled]
 - button "1 turns 1 steps"
+- button "Open a session side by side"

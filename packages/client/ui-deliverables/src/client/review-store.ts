@@ -15,6 +15,8 @@ export interface ReviewTabState {
   split: boolean
   /** Whether long lines wrap instead of scrolling. */
   wrap: boolean
+  /** Whether the model's explanation of the file is shown beside its comparison; new tabs start enabled. */
+  explain: boolean
   /** The navigation revision whose file index was last applied. */
   navigated: number
 }
@@ -36,6 +38,7 @@ type ReviewActions = {
   selected: (draft: ReviewState, tabId: TabId, index: number) => void
   toggledSplit: (draft: ReviewState, tabId: TabId) => void
   toggledWrap: (draft: ReviewState, tabId: TabId) => void
+  toggledExplain: (draft: ReviewState, tabId: TabId) => void
   forget: (draft: ReviewState, tabId: TabId) => void
 }
 
@@ -49,7 +52,7 @@ export function createReviewStore(): EngineStoreHandle<ReviewState, ReviewAction
     init: (): ReviewState => ({ byTab: {} }),
     actions: {
       /**
-       * Apply a navigation: seed a side-by-side, unwrapped tab on its first one, then show the navigated file.
+       * Apply a navigation: seed a side-by-side, unwrapped tab that shows the explanation on its first one, then show the navigated file.
        * @param d - draft state.
        * @param tabId - the tab being drawn.
        * @param revision - the navigation revision being applied.
@@ -57,7 +60,7 @@ export function createReviewStore(): EngineStoreHandle<ReviewState, ReviewAction
        */
       navigated: (d, tabId: TabId, revision: number, index: number) => {
         const tab = d.byTab[tabId]
-        if (tab === undefined) d.byTab[tabId] = { index, split: true, wrap: false, navigated: revision }
+        if (tab === undefined) d.byTab[tabId] = { index, split: true, wrap: false, explain: true, navigated: revision }
         else { tab.index = index; tab.navigated = revision }
       },
       /**
@@ -79,6 +82,12 @@ export function createReviewStore(): EngineStoreHandle<ReviewState, ReviewAction
        * @param tabId - the tab being drawn.
        */
       toggledWrap: (d, tabId: TabId) => { const tab = bucket(d, tabId); tab.wrap = !tab.wrap },
+      /**
+       * Show or hide the explanation beside the comparison.
+       * @param d - draft state.
+       * @param tabId - the tab being drawn.
+       */
+      toggledExplain: (d, tabId: TabId) => { const tab = bucket(d, tabId); tab.explain = !tab.explain },
       /**
        * Drop a tab's bucket once its record is gone.
        * @param d - draft state.

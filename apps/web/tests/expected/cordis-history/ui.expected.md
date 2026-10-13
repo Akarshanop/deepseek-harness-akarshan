@@ -1,4 +1,5 @@
 - banner:
+  - button "Change session color"
   - navigation "Session hierarchy": Use only Cordis tools. First
   - button "More actions"
   - button "Open right sidebar"
@@ -72,3 +73,4 @@
 - button "3 turns 7 steps"
 - button "66.8K tok · Cache hit 77%": 66.8K tokCache hit 77%
 - button "0% of context used": 0%
+- button "Open a session side by side"

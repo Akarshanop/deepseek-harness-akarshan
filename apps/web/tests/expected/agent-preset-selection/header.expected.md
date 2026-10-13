@@ -1,3 +1,4 @@
+- button "Change session color"
 - navigation "Session hierarchy": Seeded turn
 - button "1 subagent"
 - text: Minimal mode

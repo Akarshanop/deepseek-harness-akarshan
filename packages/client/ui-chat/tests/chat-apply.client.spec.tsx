@@ -129,8 +129,9 @@ describe('Chat apply wiring', () => {
   it('contributes Chat View, node renderers, and stats', async () => {
     const b = await bench()
     const views = b.runtime.slots.entries('conversation.view')
-    expect(views.map(row => row.options.id)).toEqual(['chat'])
+    expect(views.map(row => row.options.id)).toEqual(['chat', 'side-qa'])
     expect(resolveSlotLabel(views[0]?.options.label)).toBe('对话')
+    expect(resolveSlotLabel(views[1]?.options.label)).toBe('旁问')
     expect(b.runtime.slots.spec('conversation.chat.node'))
       .toMatchObject({ kind: 'keyed', scope: 'session' })
     expect(b.runtime.slots.entries('conversation.composer.dock').map(row => row.options.id))

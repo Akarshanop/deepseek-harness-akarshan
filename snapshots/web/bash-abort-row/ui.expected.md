@@ -1,4 +1,5 @@
 - banner:
+  - button "Change session color"
   - navigation "Session hierarchy": "Run two shell commands: wait"
   - button "More actions"
   - button "Open right sidebar"
@@ -21,3 +22,4 @@
 - button "Send message" [disabled]
 - button "1 turns 1 steps"
 - button "20 tok · Cache hit 0%": 20 tokCache hit 0%
+- button "Open a session side by side"

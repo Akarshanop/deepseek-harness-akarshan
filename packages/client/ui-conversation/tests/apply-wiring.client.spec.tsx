@@ -5,6 +5,7 @@ import {
 } from '@deepseek-ai/dsh-client-test-runtime'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { createSnapshotStore, type ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
+import type { SessionReference } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { apply, inject, type ViewTab } from '@deepseek-ai/dsh-client-ui-conversation/client'
 
@@ -15,11 +16,12 @@ const SID = 'session-1' as SessionId
 async function bench(options: { declareConversation?: boolean } = {}) {
   const runtime = await SlotTestRuntime.create()
   const developerTools = createSnapshotStore(true)
+  const openSession = vi.fn()
   runtime.ctx.provide('uiWorkspace', {
     openWorkspace: vi.fn(async (_workspaceId: unknown, beforeOpen: (id: SessionId) => void) => {
       beforeOpen(SID)
     }),
-    openSession: vi.fn(),
+    openSession,
   } as never)
   runtime.ctx.provide('configForms', { developerTools: { enabled: developerTools }, get: () => stubConfigForm().scope } as never)
   const locale = new LocaleRuntime(runtime.ctx)
@@ -33,7 +35,7 @@ async function bench(options: { declareConversation?: boolean } = {}) {
   }
   const feature = await runtime.mount({ inject: [...inject], apply })
   if (options.declareConversation !== false) runtime.renderRoot()
-  return { runtime, feature, developerTools }
+  return { runtime, feature, developerTools, openSession }
 }
 
 function entry(
@@ -57,6 +59,56 @@ describe('target-neutral Conversation apply wiring', () => {
     b.developerTools.set(true)
     expect(source.getSnapshot().map(tab => tab.id)).toEqual(['chat', 'trajectory', 'probe'])
     await b.runtime.dispose()
+  })
+  it('injects working pane and Session color commands', async () => {
+    localStorage.clear()
+    const b = await bench()
+    const sessions = b.runtime.sessions
+    await sessions.add({ id: 'p1', snapshot: {} })
+    await sessions.add({ id: 'p2', snapshot: {} })
+    const main = b.runtime.slots.entries('main')[0]!
+    const panel = main.inject!() as {
+      hooks: {
+        panes: ObservableSnapshot<{
+          order: readonly string[]
+          panes: readonly { sessionId: string; reference: SessionReference }[]
+        }>
+      }
+      addPane: (id: string) => void
+      removePane: (id: string) => void
+      syncPanes: (selected: string | undefined) => void
+      selectSession: (id: string) => void
+      createPane: (workspaceId: string) => Promise<string>
+      mountPane: (reference: SessionReference) => () => void
+    }
+    const state = () => panel.hooks.panes.getSnapshot()
+    panel.syncPanes('p1')
+    panel.addPane('p2')
+    expect(state().order).toEqual(['p1', 'p2'])
+    expect(state().panes.map(pane => pane.sessionId)).toEqual(['p2'])
+    const unmount = panel.mountPane(state().panes[0]!.reference)
+    panel.removePane('p2')
+    unmount()
+    expect(state().order).toEqual(['p1'])
+    const created = vi.spyOn(sessions, 'create').mockResolvedValueOnce('p2' as never)
+    await expect(panel.createPane('w1')).resolves.toBe('p2')
+    expect(created).toHaveBeenCalledWith({ workspaceId: 'w1' })
+    expect(state().order).toEqual(['p1', 'p2'])
+    panel.selectSession('p2')
+    expect(b.openSession).toHaveBeenCalledWith('p2')
+
+    const header = b.runtime.slots.entries('conversation.session.header')[0]!
+    const injected = header.inject!('p2' as never, {} as never) as {
+      hooks: { sessionColors: ObservableSnapshot<Readonly<Record<string, string>>> }
+      setSessionColor: (color: string) => void
+    }
+    expect(injected.hooks.sessionColors.getSnapshot().p2).toMatch(/^#[0-9a-f]{6}$/u)
+    injected.setSessionColor('#123456')
+    expect(injected.hooks.sessionColors.getSnapshot().p2).toBe('#123456')
+    expect(document.documentElement.style.getPropertyValue('--dsh-session-color-p2')).toBe('#123456')
+    await b.runtime.dispose()
+    expect(document.documentElement.style.getPropertyValue('--dsh-session-color-p2')).toBe('')
+    localStorage.clear()
   })
   it('waits for the layout-owned conversation declaration before registering its subtree', async () => {
     const b = await bench({ declareConversation: false })

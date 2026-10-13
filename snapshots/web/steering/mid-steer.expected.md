@@ -1,4 +1,5 @@
 - banner:
+  - button "Change session color"
   - navigation "Session hierarchy": Use the ask_user_question tool to
   - text: Standard mode
   - button "More actions"
@@ -29,3 +30,4 @@
   - status
   - button "Skip"
   - button "Submit" [disabled]
+- button "Open a session side by side"

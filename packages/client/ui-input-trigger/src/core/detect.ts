@@ -15,12 +15,15 @@ const WHITESPACE = /\s/u
  * whitespace (newlines included), or after punctuation. Two URL carve-outs
  * keep '/' dead inside URLs (both pinned by tests): '/' after a ':' that
  * itself follows a non-whitespace char (scheme separator, `https:/…`), and
- * '/' directly after another '/' (second slash of `//`).
+ * '/' directly after another '/' (second slash of `//`). '#' is stricter:
+ * only the draft start or whitespace opens it, because a hash glued to
+ * punctuation or text is an anchor, an issue number, or a tag.
  */
 function boundaryOk(draft: string, index: number, char: TriggerChar): boolean {
   if (index === 0) return true
   const prev = draft.charAt(index - 1)
   if (WHITESPACE.test(prev)) return true
+  if (char === '#') return false
   if (WORD_CHAR.test(prev)) return false
   if (char === '/') {
     if (prev === '/') return false
@@ -33,9 +36,10 @@ function boundaryOk(draft: string, index: number, char: TriggerChar): boolean {
  * Detect a trigger token at the caret. `@` first uses the shared grammar,
  * including an open quoted token that may span whitespace. Slash detection
  * scans left to the first whitespace; slashes failing the word boundary are
- * treated as ordinary token chars and the scan continues (URL slashes).
- * Guard tiers: plain = both chars live; claimed = '/' fully suppressed,
- * '@' live; frozen = none.
+ * treated as ordinary token chars and the scan continues (URL slashes), and
+ * so are hashes that do not follow whitespace.
+ * Guard tiers: plain = every char live; claimed = '/' fully suppressed,
+ * '@' and '#' live; frozen = none.
  *
  * @param draft - Full draft text.
  * @param caret - Caret offset into `draft`.
@@ -61,8 +65,8 @@ export const detectTrigger: DetectTrigger = (draft, caret, guard) => {
   for (let i = caret - 1; i >= 0; i--) {
     const ch = draft.charAt(i)
     if (WHITESPACE.test(ch)) return null
-    if (ch !== '/') continue
-    if (guard.tier === 'claimed') continue
+    if (ch !== '/' && ch !== '#') continue
+    if (ch === '/' && guard.tier === 'claimed') continue
     if (!boundaryOk(draft, i, ch)) continue
     return {
       trigger: ch,

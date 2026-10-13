@@ -347,7 +347,7 @@ describe('Chat inject API', () => {
   it('keeps Chat available while the optional tab registry appears and leaves', async () => {
     const b = await bench(undefined, false)
     try {
-      expect(b.runtime.slots.entries('conversation.view')).toHaveLength(1)
+      expect(b.runtime.slots.entries('conversation.view')).toHaveLength(2)
       expect(b.runtime.slots.entries('settings.general.item').some(row => row.options.id === 'link-opening')).toBe(false)
       const registry = await b.runtime.mount({
         apply(ctx) { ctx.provide('sidebarRightTabs', b.sidebarRightTabs as never) },
@@ -357,7 +357,7 @@ describe('Chat inject API', () => {
       })
       await registry.dispose()
       expect(b.runtime.slots.entries('settings.general.item').some(row => row.options.id === 'link-opening')).toBe(false)
-      expect(b.runtime.slots.entries('conversation.view')).toHaveLength(1)
+      expect(b.runtime.slots.entries('conversation.view')).toHaveLength(2)
     } finally {
       await b.runtime.dispose()
     }

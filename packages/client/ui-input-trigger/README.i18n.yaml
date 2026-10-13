@@ -3,20 +3,23 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/client/ui-input-trigger/README.md
 /:
-  en: 99c36d8cf52f1a8a
-  zh: 3cc3f1e8c2f42c23
+  en: 631e691665deab35
+  zh: 04f91b86f499849a
 /deepseek-ai-dsh-client-ui-input-trigger:
   en: b40e9083c7d330ed
   zh: 127f5e9ec56b9165
 /deepseek-ai-dsh-client-ui-input-trigger/summary:
-  en: 2a968a6e0bc65ac4
-  zh: 883f1be84003a5c5
+  en: a6867013706e857a
+  zh: 50b97be0ae21061c
 /deepseek-ai-dsh-client-ui-input-trigger/table-of-contents:
   en: d152484eb41ac6b4
   zh: 09388d293f9be9cb
 /deepseek-ai-dsh-client-ui-input-trigger/use-this-package:
   en: c32eed8d234a108d
   zh: e0d192dca9c6a1f6
+/deepseek-ai-dsh-client-ui-input-trigger/use-this-package/the-trigger:
+  en: 1c698445deb1e591
+  zh: 6332c8d71857b142
 /deepseek-ai-dsh-client-ui-input-trigger/use-this-package/keyboard-and-mouse:
   en: b198d6256a961f99
   zh: 292e0bb94c18c9ca

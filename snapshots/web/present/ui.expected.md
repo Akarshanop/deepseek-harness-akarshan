@@ -1,4 +1,5 @@
 - banner:
+  - button "Change session color"
   - navigation "Session hierarchy": Use one run_code program to
   - text: PTC mode
   - button "More actions"
@@ -57,3 +58,4 @@
 - button "1 turns 2 steps · {{throughput}} tok/s": 1 turns 2 steps{{throughput}} tok/s
 - button "19K tok · Cache hit 94%": 19K tokCache hit 94%
 - button "8% of context used": 8%
+- button "Open a session side by side"

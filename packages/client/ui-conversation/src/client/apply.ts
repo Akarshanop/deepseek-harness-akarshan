@@ -38,6 +38,7 @@ import { ConversationContent } from './skeleton/ConversationContent.tsx'
 import { ConversationPanel } from './skeleton/ConversationPanel.tsx'
 import type { ConversationPanelInjected } from './skeleton/ConversationPanel.tsx'
 import { SplitPanes } from './split-panes.ts'
+import { SessionColors } from './session-colors.ts'
 import { ConversationHeader } from './skeleton/ConversationHeader.tsx'
 import { ConversationSession, ConversationSessionHeader } from './skeleton/ConversationSession.tsx'
 import { InputBar } from './skeleton/InputBar.tsx'
@@ -301,6 +302,22 @@ export function apply(ctx: Context, config: Config = Config({})): void {
     },
   })
 
+  // Identity colors reach other packages as CSS custom properties on the document root.
+  const sessionColors = new SessionColors(document.documentElement)
+  const assignColors = (): void => {
+    sessionColors.ensure(Object.values(sessions.list.getSnapshot().byId)
+      .filter(row => !row.blank)
+      .map(row => row.id))
+  }
+  ctx.effect(() => {
+    assignColors()
+    const stop = sessions.list.subscribe(assignColors)
+    return () => {
+      stop()
+      sessionColors.dispose()
+    }
+  }, 'ui-conversation: Session colors')
+
   const registerConversationRoot = () => slots.register({
     name: 'main.conversation',
     children: {
@@ -410,7 +427,8 @@ export function apply(ctx: Context, config: Config = Config({})): void {
     },
     store: conversationStore,
     inject: (sessionId: SessionId, actions: BoundActions<typeof conversationStore>): ConversationSessionHeaderInjected => ({
-      hooks: { conversationViews },
+      hooks: { conversationViews, sessionColors: sessionColors.source },
+      setSessionColor: (color) => { sessionColors.set(sessionId, color) },
       open: (id) => { workspaceNavigation.openSession(id) },
       selectView: (view) => {
         activateView(sessionId, view)
@@ -542,7 +560,14 @@ export function apply(ctx: Context, config: Config = Config({})): void {
       inject: (): ConversationPanelInjected => ({
         hooks: { panes: splitPanes.source },
         addPane: (id) => { splitPanes.add(id) },
+        createPane: async (workspaceId) => {
+          const id = await sessions.create({ workspaceId })
+          splitPanes.add(id)
+          return id
+        },
         removePane: (id) => { splitPanes.remove(id) },
+        syncPanes: (selected) => { splitPanes.sync(selected) },
+        selectSession: (id) => { workspaceNavigation.openSession(id) },
         mountPane: reference => splitPanes.mount(reference),
       }),
     }, ConversationPanel)

@@ -1,0 +1,73 @@
+.root {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+}
+
+.dot {
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 1.5px solid var(--dsw-alias-bg-base);
+  border-radius: 50%;
+  corner-shape: round;
+  box-shadow: 0 0 0 1px var(--dsw-alias-border-l2);
+  cursor: pointer;
+}
+
+.dot:hover {
+  transform: scale(1.15);
+}
+
+.palette {
+  position: absolute;
+  top: 22px;
+  inset-inline-start: -6px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 176px;
+  padding: 10px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.swatches {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+}
+
+.swatch {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1.5px solid transparent;
+  border-radius: 50%;
+  corner-shape: round;
+  cursor: pointer;
+}
+
+.swatchActive {
+  border-color: var(--dsw-alias-label-primary);
+}
+
+.custom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--dsw-alias-label-caption);
+  font-size: 12px;
+}
+
+.custom input {
+  width: 32px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}

@@ -1270,3 +1270,64 @@ describe('reference activation', () => {
     expect(controller.openReference('skill', { ref: '/review' })).toBe(false)
   })
 })
+
+describe('"#" trigger', () => {
+  const session = { name: 'Lecture work', label: 'Lecture work', icon: 'session' as const }
+  const chip: ReferenceInsert = {
+    source: 'session-context', ref: '#[Lecture work](dsh-session:abc)', label: 'Lecture work', appearance: 'session',
+    clipboardText: '#[Lecture work](dsh-session:abc)',
+  }
+
+  it('opens the sources registered for "#" alone and inserts the picked chip at the typed token', async () => {
+    const hash = readySource('#', 'session-context', [session], () => ({ insert: chip }))
+    const at = readySource('@', 'reference', [{ name: 'file.ts' }])
+    const { controller, actx } = controllerBench([hash.source, at.source])
+    const inserts: InsertReferenceRequest[] = []
+    actx.on('slash/input-insert-reference', (req) => {
+      inserts.push(req)
+      return true
+    })
+    controller.track('compare #lec', 12, { tier: 'plain' }, 4)
+    await tick()
+    expect(controller.menu.getSnapshot().groups.map(g => g.source)).toEqual(['session-context'])
+    controller.pick('session-context', 0)
+    expect(hash.picks[0]).toMatchObject({ candidate: { name: 'Lecture work' }, position: 'inline', via: 'menu', span: { start: 8, end: 12, draftRev: 4 } })
+    expect(inserts).toEqual([{ reference: chip, span: { start: 8, end: 12, draftRev: 4 } }])
+    expect(controller.menu.getSnapshot().open).toBe(false)
+    expect(at.picks).toHaveLength(0)
+  })
+
+  it('does not open for a hash glued to text', async () => {
+    const hash = readySource('#', 'session-context', [session])
+    const { controller } = controllerBench([hash.source])
+    controller.track('page#lec', 8, { tier: 'plain' }, 1)
+    await tick()
+    expect(controller.menu.getSnapshot().open).toBe(false)
+  })
+
+  it('serializes a chip through its own codec even when an "@" source shares the name', async () => {
+    const codec = (tag: string) => ({ clipboardText: (ref: string) => ref, serialize: (ref: string) => Promise.resolve(`${tag}${ref}`) })
+    const hash: InputTriggerSource = { ...readySource('#', 'session-context', []).source, codec: codec('hash:') }
+    const { controller } = controllerBench([hash])
+    await expect(controller.serializeReference('session-context', '#[x](dsh-session:y)', new AbortController().signal))
+      .resolves.toBe('hash:#[x](dsh-session:y)')
+  })
+
+  it('ignores a lexicon on a "#" source: it has no typed text token to decorate', () => {
+    const lexHash: InputTriggerSource = {
+      trigger: '#', name: 'session-context', candidates: () => Promise.resolve([]), onPick: () => undefined, lexicon: () => ['never'],
+    }
+    const lexSlash: InputTriggerSource = { ...lexHash, trigger: '/', name: 'skill', lexicon: () => ['review'] }
+    const { controller } = controllerBench([lexHash, lexSlash])
+    const rolls = controller.lexicon.getSnapshot()
+    expect([...rolls.keys()]).toEqual(['/'])
+    expect(rolls.get('/')).toEqual(['review'])
+  })
+
+  it('allows the same source name under "@" and "#"', async () => {
+    const { inputTriggers } = await serviceBench()
+    inputTriggers.registerSource(readySource('@', 'reference', []).source)
+    inputTriggers.registerSource(readySource('#', 'reference', []).source)
+    expect(() => inputTriggers.registerSource(readySource('#', 'reference', []).source)).toThrow(/already registered/)
+  })
+})

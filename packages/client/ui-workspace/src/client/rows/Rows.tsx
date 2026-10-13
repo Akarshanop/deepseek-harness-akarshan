@@ -11,7 +11,7 @@
  * session and workspace hover cards are suppressed while a menu is open.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { RefObject } from 'react'
+import type { CSSProperties, RefObject } from 'react'
 import clsx from 'clsx'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import {
@@ -396,6 +396,17 @@ function sessionStatuses(
   return [{ state: 'idle', label: t('status.idle') }]
 }
 
+/**
+ * Characters of a Session id that a CSS custom property name can carry. The Session's identity
+ * color is published as `--dsh-session-color-<id>` by ui-conversation; keep this in step with
+ * that package's session-colors module.
+ * @param sessionId - Session identity.
+ * @returns the id with every character outside `[A-Za-z0-9_-]` replaced by `_`.
+ */
+function colorPropertySuffix(sessionId: string): string {
+  return sessionId.replace(/[^\w-]/gu, '_')
+}
+
 /** Primary status dot plus every status's screen-reader label, shared by the search and session rows. */
 function SessionStatusDots({ statuses }: { statuses: readonly [SessionStatus, ...SessionStatus[]] }) {
   return (
@@ -592,6 +603,7 @@ export function SessionNodeItem({
         row.archived && css.archived,
         drag?.marker === 'before' && css.dropBefore, drag?.marker === 'after' && css.dropAfter,
       )}
+      style={{ '--dsh-row-session-color': `var(--dsh-session-color-${colorPropertySuffix(node.id)}, transparent)` } as CSSProperties}
       role="treeitem"
       aria-selected={selected}
       aria-description={row.archived ? t('toast.archivedNotOpenable') : undefined}
@@ -633,6 +645,7 @@ export function SessionNodeItem({
           ? <SessionStatusDots statuses={statuses} />
           : renderSlot('sidebar.session.row.leading', { sessionId: node.id }))}
       </span>
+      {!row.archived && !row.blank && <span className={css.colorDot} aria-hidden />}
       <span
         ref={titleRef}
         className={css.title}

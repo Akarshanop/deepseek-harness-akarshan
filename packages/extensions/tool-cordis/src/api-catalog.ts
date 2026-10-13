@@ -2391,6 +2391,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'agent', description: 'target agent; references to it are rejected.' }, { name: 'content', description: 'already host-normalized readable message content.' }, { name: 'references', description: 'structured source sessions in mention order.' }, { name: 'signal', description: 'optional cancellation boundary for the active turn.' }],
         returns: 'detached content and optional referenced-session context.',
       },
+      {
+        signature: '@Remote(\'summarize\') async remoteSummarize(agent: Agent, sessionId: SessionId, signal: AbortSignal): Promise<void>',
+        description: 'Remote face that writes a `#` source\'s summary ahead of the send, so picking the session starts the work and sending reuses its result. The source is read, never written.',
+        parameters: [{ name: 'agent', description: 'the composer\'s session; references to it are rejected.' }, { name: 'sessionId', description: 'the source session to summarize.' }, { name: 'signal', description: 'caller cancellation; the shared request keeps running for the send that follows.' }],
+        returns: 'once the summary is ready.',
+      },
     ],
   },
   {
@@ -7079,11 +7085,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionReferenceInput',
-    declaration: 'export interface SessionReferenceInput {\n    sessionId: SessionId;\n    label?: string;\n}',
+    declaration: 'export interface SessionReferenceInput {\n    sessionId: SessionId;\n    label?: string;\n    compact?: boolean;\n}',
   },
   {
     name: 'SessionReferenceMentionCandidate',
-    declaration: 'export interface SessionReferenceMentionCandidate extends SessionReferenceCandidate {\n    mention: string;\n}',
+    declaration: 'export interface SessionReferenceMentionCandidate extends SessionReferenceCandidate {\n    mention: string;\n    compactMention: string;\n}',
   },
   {
     name: 'SessionRenameRequest',

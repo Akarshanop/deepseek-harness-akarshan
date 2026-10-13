@@ -1,4 +1,5 @@
 - banner:
+  - button "Change session color"
   - navigation "Session hierarchy": Reply with the single word
   - text: Standard mode
   - button "More actions"
@@ -24,3 +25,4 @@
 - button "1 turns 1 steps · {{throughput}} tok/s": 1 turns 1 steps{{throughput}} tok/s
 - button "10K tok · Cache hit 99.5%": 10K tokCache hit 99.5%
 - button "8% of context used": 8%
+- button "Open a session side by side"

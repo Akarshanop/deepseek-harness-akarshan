@@ -124,3 +124,43 @@ describe('detectTrigger span and query', () => {
     expect(hit).toMatchObject({ trigger: '/', query: 'com', position: 'inline', span: { start: 18, end: 22 } })
   })
 })
+
+describe('detectTrigger "#"', () => {
+  it('opens at the draft start and after whitespace or a newline', () => {
+    expect(atEnd('#lec')).toMatchObject({ trigger: '#', query: 'lec', position: 'leading', quoted: false, span: { start: 0, end: 4 } })
+    expect(atEnd('use #lec')).toMatchObject({ trigger: '#', query: 'lec', position: 'inline', span: { start: 4, end: 8 } })
+    expect(atEnd('first\n#lec')).toMatchObject({ trigger: '#', query: 'lec', position: 'inline' })
+    expect(atEnd('#')).toMatchObject({ trigger: '#', query: '' })
+  })
+
+  it('stays closed when the hash is glued to text or punctuation', () => {
+    // An anchor, a tag, an issue number, a color, and a URL fragment are not session references.
+    for (const draft of ['page#anchor', 'fix#12', 'a_b#c', '(#12', 'see (#12', '"#fff', 'x,#y']) {
+      expect(atEnd(draft), draft).toBeNull()
+    }
+    // A later "/" token may still open on its own; the hash never does.
+    expect(atEnd('https://x.dev/#/route')).toMatchObject({ trigger: '/', query: 'route' })
+  })
+
+  it('is cut off by whitespace after the token', () => {
+    expect(atEnd('#lecture done')).toBeNull()
+    expect(atEnd('# heading')).toBeNull()
+  })
+
+  it('does not take over a slash or at token that follows it', () => {
+    expect(atEnd('/goal #lec')).toMatchObject({ trigger: '#', query: 'lec' })
+    expect(atEnd('#lec @wor')).toMatchObject({ trigger: '@', query: 'wor' })
+    // A hash inside a slash token leaves the slash token in charge.
+    expect(atEnd('/open#frag')).toMatchObject({ trigger: '/', query: 'open#frag' })
+  })
+
+  it('is live under the plain and claimed tiers and frozen only by the frozen tier', () => {
+    expect(atEnd('#lec', claimed)).toMatchObject({ trigger: '#', query: 'lec' })
+    expect(atEnd('/goal fix #lec', claimed)).toMatchObject({ trigger: '#', query: 'lec' })
+    expect(atEnd('#lec', frozen)).toBeNull()
+  })
+
+  it('cuts the query at a mid-token caret', () => {
+    expect(detectTrigger('say #lecture', 7, plain)).toMatchObject({ trigger: '#', query: 'le', span: { start: 4, end: 7 } })
+  })
+})

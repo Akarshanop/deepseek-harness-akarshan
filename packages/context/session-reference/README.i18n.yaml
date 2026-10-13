@@ -9,8 +9,8 @@
   en: ac4de1b73582661f
   zh: 348c1ee18d356ced
 /deepseek-ai-dsh-session-reference/summary:
-  en: 3f295289f31296b6
-  zh: 8246ede26b9699fc
+  en: 634b8c9b6101fad0
+  zh: 32549bb4a11c6b13
 /deepseek-ai-dsh-session-reference/table-of-contents:
   en: d152484eb41ac6b4
   zh: 09388d293f9be9cb
@@ -18,17 +18,20 @@
   en: 5204d64418ff8969
   zh: d7cabc99294e480e
 /deepseek-ai-dsh-session-reference/use-this-package/mention-syntax:
-  en: d25be7f4b82afe02
-  zh: 6ad886a864d584b2
+  en: 32a343bc01b805fe
+  zh: c355d2f322d4ecec
 /deepseek-ai-dsh-session-reference/use-this-package/what-the-agent-gets:
   en: 0942e28bfd0d07da
   zh: ca109508b18b4c14
+/deepseek-ai-dsh-session-reference/use-this-package/summarizing-a-session-with:
+  en: 4304d023f039e4b3
+  zh: 3af3570dd37d939b
 /deepseek-ai-dsh-session-reference/use-this-package/finding-sessions-to-reference:
   en: 169f100ba62f2120
   zh: 3fd4fc0bd73b2370
 /deepseek-ai-dsh-session-reference/use-this-package/configuration:
-  en: d9abc1b28c3feb40
-  zh: ac85539027b37130
+  en: b2f80f835d57f3e2
+  zh: d58a7e27cc111e86
 /deepseek-ai-dsh-session-reference/understand-the-implementation:
   en: db349483e453caf7
   zh: 70035c291e1efe84
@@ -39,8 +42,8 @@
   en: 7c7b413082507150
   zh: 0229eb73d441b305
 /deepseek-ai-dsh-session-reference/understand-the-implementation/main-flow:
-  en: 019e5e19f9b3d7fd
-  zh: 52ccf291f53d41fc
+  en: 778687ae150d8ccf
+  zh: ab3d1e0f50569005
 /deepseek-ai-dsh-session-reference/further-exploration:
   en: 2b0244f6ac3626d2
   zh: 88ef45b405a8b8a2
@@ -59,9 +62,21 @@
 /deepseek-ai-dsh-session-reference/model-experience/referenced-session-background/kv-cache-effect:
   en: 530d6417585b5c9e
   zh: abf1597589e8de17
+/deepseek-ai-dsh-session-reference/model-experience/summarized-session-background:
+  en: e069fec41a157c6f
+  zh: 1cca12330871339a
+/deepseek-ai-dsh-session-reference/model-experience/summarized-session-background/what-the-model-sees:
+  en: 7441eb979cbaffcf
+  zh: 2a7a282d6e635b92
+/deepseek-ai-dsh-session-reference/model-experience/summarized-session-background/token-effect:
+  en: fea260464bdfd8df
+  zh: 635ad7d451f31e77
+/deepseek-ai-dsh-session-reference/model-experience/summarized-session-background/kv-cache-effect:
+  en: 358d2d33e11a8197
+  zh: aa15e6ba3c1ac032
 /deepseek-ai-dsh-session-reference/known-limitations-and-deferred-work:
-  en: fce2f29b6a71b7f4
-  zh: 31440d93a112d5de
+  en: a6837998532f167a
+  zh: eac09f9b78e43e34
 /deepseek-ai-dsh-session-reference/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: 3bb0c20c93f16f98

@@ -10,3 +10,4 @@
 - button "Select model, current DeepSeek-V4-Flash": DeepSeek-V4-Flash
 - button "Start recording"
 - button "Send message"
+- button "Open a session side by side"

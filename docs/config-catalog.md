@@ -527,6 +527,47 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-shortcuts -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-deliverables -->
+<a id="deepseek-aidsh-client-ui-deliverables"></a>
+
+## `@deepseek-ai/dsh-client-ui-deliverables`
+
+- `inject`: `systemPrompt` · `connection` · `sessionQuery` · `sessionController` · `workspaceFiles` · `fs` · `sandboxPolicy` · `workspaceChanges`
+- `source`: [`packages/client/ui-deliverables/src/index.ts:21`](../packages/client/ui-deliverables/src/index.ts)
+
+```ts config-catalog
+/** Settings of the model-written explanations shown beside each changed file's comparison. */
+export interface Config {
+  /** Bounds, route, and language of the explanations; they are written for every changed file unless `enabled` is false. */
+  explain: ExplainConfig
+}
+
+/** Bounds and wording of the explanation requests; every field is a deployment choice. */
+export interface ExplainConfig {
+  /** Whether changes are explained at all. */
+  enabled: boolean
+  /** Files per recorded turn whose explanation starts as soon as the turn's changes are recorded; the rest start on request. */
+  eagerFiles: number
+  /** Model requests that may run at the same time. */
+  concurrency: number
+  /** Characters of comparison text one request carries; a longer comparison is cut with a marker. */
+  maxDiffChars: number
+  /** Lines from the start of the file as it now stands that one request carries when the file existed before and after. */
+  contextLines: number
+  /** Output-token cap of one request, covering any reasoning the route performs. */
+  maxOutputTokens: number
+  /** Milliseconds one explanation may take, including its wait for a free model request. */
+  timeoutMs: number
+  /** Language the explanation is written in. */
+  language: string
+  /** Explicit provider route; both or neither of `provider` and `model`. Without it the Session's current route is used. */
+  provider?: string
+  /** Explicit model id paired with `provider`. */
+  model?: string
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-ui-deliverables -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-plugin-manager -->
 <a id="deepseek-aidsh-client-ui-plugin-manager"></a>
 
@@ -2853,7 +2894,7 @@ export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 ## `@deepseek-ai/dsh-session-reference`
 
 - `inject`: `sessionQuery`
-- `source`: [`packages/context/session-reference/src/config.ts:11`](../packages/context/session-reference/src/config.ts)
+- `source`: [`packages/context/session-reference/src/config.ts:19`](../packages/context/session-reference/src/config.ts)
 
 ```ts config-catalog
 /** Session-reference service configuration. */
@@ -2866,6 +2907,15 @@ export interface Config {
   maxReferenceBytes?: number
   /** Fraction of the model context window per source, estimated at four bytes per token; between zero and one. */
   referenceContextFraction?: number
+  /**
+   * Fraction of the model context window, at four bytes per token with a 64 KiB floor, that the
+   * summarization request for one `#` reference may read from its source; between zero and one.
+   */
+  compactContextFraction?: number
+  /** Output-token cap of one summarization request, covering any reasoning the route performs. */
+  compactMaxTokens?: number
+  /** Milliseconds one summarization request may take before the message's preparation fails. */
+  compactTimeoutMs?: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-session-reference -->
@@ -4515,7 +4565,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 | `@deepseek-ai/dsh-client-ui-commands` | — | [`packages/client/ui-commands/src/index.ts`](../packages/client/ui-commands/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-conversation` | — | [`packages/client/ui-conversation/src/index.ts`](../packages/client/ui-conversation/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-cordis` | — | [`packages/extensions/ui-cordis/src/index.ts`](../packages/extensions/ui-cordis/src/index.ts) |
-| `@deepseek-ai/dsh-client-ui-deliverables` | `systemPrompt` · `connection` · `sessionQuery` · `sessionController` · `workspaceFiles` · `fs` · `sandboxPolicy` · `workspaceChanges` | [`packages/client/ui-deliverables/src/index.ts`](../packages/client/ui-deliverables/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-directory-picker-browse` | — | [`packages/client/ui-directory-picker-browse/src/index.ts`](../packages/client/ui-directory-picker-browse/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-directory-picker-native` | — | [`packages/client/ui-directory-picker-native/src/index.ts`](../packages/client/ui-directory-picker-native/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-goal` | — | [`packages/client/ui-goal/src/index.ts`](../packages/client/ui-goal/src/index.ts) |

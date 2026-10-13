@@ -90,15 +90,30 @@ describe('workspace browser rows', () => {
     }
     const view = render(<SessionNodeItem node={idle} currentId={undefined} now={0} onOpen={vi.fn()} t={t} />)
     // The cell is the row's first element and holds nothing while the row is
-    // idle without an occupant; the title follows it.
-    const cell = screen.getByText('Flat Session').previousElementSibling
+    // idle without an occupant; the Session color dot and the title follow it.
+    const colorDot = screen.getByText('Flat Session').previousElementSibling
+    expect(colorDot?.className).toMatch(/colorDot/)
+    const cell = colorDot?.previousElementSibling
     expect(cell?.className).toMatch(/slot/)
     expect(cell?.children).toHaveLength(0)
 
     view.rerender(<SessionNodeItem node={{ ...idle, running: true }} currentId={undefined} now={0}
       onOpen={vi.fn()} t={t} />)
     // A row that gains a state dot keeps that dot in the same cell.
-    expect(screen.getByText('Flat Session').previousElementSibling?.querySelector('[data-state="ongoing"]')).toBeTruthy()
+    expect(screen.getByText('Flat Session').previousElementSibling?.previousElementSibling?.querySelector('[data-state="ongoing"]')).toBeTruthy()
+  })
+
+  it('tags a session row with its identity color and omits the dot on blank rows', () => {
+    const node: SessionNode = {
+      id: sid('a.b'), title: 'Colored', blank: false, running: false,
+      runningSubagentCount: 0, completed: false, updatedAt: 0, pinned: false, archived: false,
+    }
+    const view = render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()} t={t} />)
+    const row = screen.getByRole('treeitem')
+    expect(row.style.getPropertyValue('--dsh-row-session-color')).toBe('var(--dsh-session-color-a_b, transparent)')
+    expect(row.querySelector('[class*="colorDot"]')).toBeTruthy()
+    view.rerender(<SessionNodeItem node={{ ...node, blank: true }} currentId={undefined} now={0} onOpen={vi.fn()} t={t} />)
+    expect(screen.getByRole('treeitem').querySelector('[class*="colorDot"]')).toBeNull()
   })
 
   it('renders a selected content-search row and opens only its session', () => {
@@ -1012,8 +1027,9 @@ describe('session row schedule seats', () => {
       const cell = screen.getByRole('treeitem')
         .querySelector('[data-seat="sidebar.session.row.leading"]')?.parentElement
       expect(cell?.previousElementSibling ?? null).toBeNull()
-      expect(cell?.nextElementSibling?.textContent).toBe('Idle Session')
-      expect(cell?.nextElementSibling?.nextElementSibling?.textContent).toBe('刚刚')
+      expect(cell?.nextElementSibling?.className).toMatch(/colorDot/)
+      expect(cell?.nextElementSibling?.nextElementSibling?.textContent).toBe('Idle Session')
+      expect(cell?.nextElementSibling?.nextElementSibling?.nextElementSibling?.textContent).toBe('刚刚')
     }
     assertPlacement()
     // Rerender through the same row: the seat stays leading without the flat

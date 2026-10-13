@@ -126,6 +126,22 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+/* Session identity color (set by ui-conversation): a dot after the status slot, and the
+   running spinner painted in the same color. */
+.colorDot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-inline-start: 4px;
+  border-radius: 50%;
+  corner-shape: round;
+  background: var(--dsh-row-session-color, transparent);
+}
+
+.sessionRow .slot [data-state='ongoing'] {
+  color: var(--dsh-row-session-color, var(--dsw-alias-label-tertiary));
+}
+
 .visuallyHidden {
   position: absolute;
   width: 1px;

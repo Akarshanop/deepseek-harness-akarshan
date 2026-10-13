@@ -1,4 +1,5 @@
 - banner:
+  - button "Change session color"
   - navigation "Session hierarchy": Stream one TypeScript fence for
   - text: Standard mode
   - button "More actions"
@@ -19,6 +20,7 @@
 - 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current streaming-fence-highlight-test/streaming-fence": streaming-fence-highlight-test/streaming-fence
 - button "Stop generating"
+- button "Open a session side by side"
 
 ---
 
