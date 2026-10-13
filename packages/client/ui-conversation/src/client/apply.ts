@@ -36,6 +36,8 @@ import type { EnterBehaviorRowInjected } from './settings/EnterBehaviorRow.tsx'
 import { ConversationRoot } from './skeleton/ConversationRoot.tsx'
 import { ConversationContent } from './skeleton/ConversationContent.tsx'
 import { ConversationPanel } from './skeleton/ConversationPanel.tsx'
+import type { ConversationPanelInjected } from './skeleton/ConversationPanel.tsx'
+import { SplitPanes } from './split-panes.ts'
 import { ConversationHeader } from './skeleton/ConversationHeader.tsx'
 import { ConversationSession, ConversationSessionHeader } from './skeleton/ConversationSession.tsx'
 import { InputBar } from './skeleton/InputBar.tsx'
@@ -530,10 +532,19 @@ export function apply(ctx: Context, config: Config = Config({})): void {
   }, InputBar)
 
   slots.inject('main', function* () {
+    const splitPanes = new SplitPanes(sessions)
+    yield () => { splitPanes.dispose() }
     yield slots.register({
       name: 'main',
       key: 'conversation',
+      locale: NS,
       children: { 'main.conversation': { kind: 'single', scope: 'session-maybe' } },
+      inject: (): ConversationPanelInjected => ({
+        hooks: { panes: splitPanes.source },
+        addPane: (id) => { splitPanes.add(id) },
+        removePane: (id) => { splitPanes.remove(id) },
+        mountPane: reference => splitPanes.mount(reference),
+      }),
     }, ConversationPanel)
     yield registerConversationRoot()
     yield registerConversationContent()

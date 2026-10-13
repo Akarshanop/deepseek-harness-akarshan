@@ -380,6 +380,11 @@ export const zh = {
   'terminal.expandRest': '… 其余 {n} 行',
   'terminal.sendInput': '（发送输入）',
   'terminal.session': '终端 {sessionId}',
+  'split.add': '并排打开会话',
+  'split.close': '关闭此窗格',
+  'split.hint': '选择要并排显示的会话，或将侧栏会话拖到此处',
+  'split.empty': '没有可添加的会话',
+  'split.drop': '松开以并排打开此会话',
 } satisfies Record<string, string>
 
 /** The conversation namespace key union. */
@@ -760,4 +765,9 @@ export const en = {
   // aligned with these English values.
   'terminal.sendInput': '(send input)',
   'terminal.session': 'Terminal {sessionId}',
+  'split.add': 'Open a session side by side',
+  'split.close': 'Close this pane',
+  'split.hint': 'Pick a session, or drag one from the sidebar',
+  'split.empty': 'No other sessions to add',
+  'split.drop': 'Drop to open this session side by side',
 } satisfies Record<ConversationKey, string>

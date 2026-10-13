@@ -1,0 +1,130 @@
+.root {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  height: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* Panes share the width equally but never shrink below a usable chat column;
+   a narrow window scrolls the row instead of squeezing a chat out of view.
+   Each pane has the root's definite height so the Conversation's sticky
+   composer stays inside the visible area. */
+.pane {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 320px;
+  height: 100%;
+  overflow: hidden;
+}
+
+.pane + .pane {
+  border-inline-start: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+/* Sits at the right end of the header's Chat/Trajectory tab row: 10px header inset +
+   30px title row + 10px tab margin put the 16px tab line at 50px, so a 24px button
+   centers on it from 46px (see ConversationRoot `.header`). */
+.closePane {
+  position: absolute;
+  top: 46px;
+  inset-inline-end: 12px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.closePane:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.add {
+  position: absolute;
+  bottom: 14px;
+  inset-inline-end: 14px;
+  z-index: 4;
+}
+
+.addButton {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.addButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.picker {
+  position: absolute;
+  bottom: 36px;
+  inset-inline-end: 0;
+  display: flex;
+  flex-direction: column;
+  width: 260px;
+  max-height: 320px;
+  padding: 6px;
+  overflow-y: auto;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.pickerHint,
+.pickerEmpty {
+  padding: 6px 8px;
+  color: var(--dsw-alias-label-caption);
+  font-size: 12px;
+}
+
+.pickerItem {
+  padding: 7px 8px;
+  overflow: hidden;
+  border: none;
+  border-radius: var(--dsw-radius-md);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 13px;
+  text-align: start;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.pickerItem:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.dropHint {
+  position: absolute;
+  inset: 8px;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  border: 1.5px dashed var(--dsw-alias-state-business-primary);
+  border-radius: var(--dsw-radius-md);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  pointer-events: none;
+}
