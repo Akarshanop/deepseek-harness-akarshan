@@ -15,6 +15,7 @@ import { catalogProvider, catalogProviderIds } from './catalog.ts'
 import { recordKeyFor } from './auth.ts'
 import type { PiAiAuthInjection } from './adapter.ts'
 import { createModels } from './models.ts'
+import { SUBSCRIPTION_OAUTH_WITHHELD } from './subscription.ts'
 
 /**
  * Catalog providers whose OAuth login this adapter does not offer. pi-ai's Sign
@@ -30,7 +31,9 @@ const UNSERVED_OAUTH: ReadonlySet<string> = new Set(['openai'])
  *
  * A method appears only when pi-ai can actually run it: `oauth` carries a
  * `login` that runs without app-supplied login options except for the
- * providers in {@link UNSERVED_OAUTH}, while an api-key method has one only
+ * providers in {@link UNSERVED_OAUTH}, and never for the providers in
+ * {@link SUBSCRIPTION_OAUTH_WITHHELD}, whose consumer-subscription sign-ins a
+ * third-party application may not collect. An api-key method has a login only
  * when the provider collects its key interactively — which every installed one
  * currently does, so a key is typed into pi-ai's own prompt rather than into
  * the settings form.
@@ -39,7 +42,9 @@ const UNSERVED_OAUTH: ReadonlySet<string> = new Set(['openai'])
  */
 function loginMethods(provider: Provider | undefined): AuthorizationMethod[] {
   const methods: AuthorizationMethod[] = []
-  const oauth = provider === undefined || UNSERVED_OAUTH.has(provider.id) ? undefined : provider.auth.oauth
+  const oauth = provider === undefined || UNSERVED_OAUTH.has(provider.id) || SUBSCRIPTION_OAUTH_WITHHELD.has(provider.id)
+    ? undefined
+    : provider.auth.oauth
   if (oauth !== undefined) methods.push({ id: 'oauth', label: oauth.loginLabel ?? oauth.name })
   const apiKey = provider?.auth.apiKey
   if (apiKey?.login !== undefined) methods.push({ id: 'api-key', label: apiKey.name })
@@ -132,9 +137,10 @@ export function registerPiAiFlows(ctx: Context, auth: PiAiAuthInjection): void {
   for (const providerId of catalogProviderIds()) {
     const provider = catalogProvider(providerId)
     const [first, ...rest] = loginMethods(provider)
-    /* v8 ignore next 3 -- every id here names an installed provider and every
-       installed provider ships a login, so no entry is skipped; the guard
-       is what keeps that from becoming a crash if either stops being true. */
+    // `openai-codex` ships OAuth alone, so withholding that login leaves it
+    // with no method and no flow.
+    /* v8 ignore next -- every id here names an installed provider; the guard
+       is what keeps a vanished one from becoming a crash. */
     if (provider === undefined || first === undefined) continue
     /* v8 ignore next 7 -- every installed catalog id is a lowercase
        hyphenated identifier; the guard keeps a future upstream id outside the

@@ -23,7 +23,9 @@ const { credentialStoreFrom, authContextFrom, recordKeyFor } = await import('../
 const { catalogProvider } = await import('../src/catalog.ts')
 const { registerPiAiFlows } = await import('../src/login.ts')
 
-const CODEX = recordKeyFor('openai-codex')
+// A sign-in the harness offers that is not a consumer-subscription login, so the tests
+// below exercise the flow mechanics without depending on a withheld provider.
+const OPENROUTER = recordKeyFor('openrouter')
 const dirs: string[] = []
 
 /** A context with the record store, the seam, and every pi-ai login flow. */
@@ -69,7 +71,7 @@ async function attempt(
     return granted
   })
   await expect(ctx.authorization.begin({
-    key: request.key ?? CODEX,
+    key: request.key ?? OPENROUTER,
     interaction: ui,
     ...request.method === undefined ? {} : { method: request.method },
   })).resolves.toEqual({ status: 'authorized' })
@@ -86,13 +88,18 @@ describe('pi-ai login flows', () => {
     const ctx = await harness()
     const offered = ctx.authorization.list()
 
-    // The OAuth-only provider is exactly the case this exists for: nothing
-    // else could ever configure it.
-    expect(offered.find(entry => entry.key === CODEX)?.methods)
-      .toEqual([{ id: 'oauth', label: expect.stringContaining('ChatGPT') as string }])
-    // A provider offering both keeps both, the subscription login first.
-    expect(offered.find(entry => entry.key === recordKeyFor('anthropic'))?.methods.map(one => one.id))
+    // A provider offering both keeps both, the OAuth login first.
+    expect(offered.find(entry => entry.key === OPENROUTER)?.methods.map(one => one.id))
       .toEqual(['oauth', 'api-key'])
+    // Claude Pro/Max sign-in is a consumer subscription that a third-party
+    // application may not collect, so only the API-key login remains.
+    expect(catalogProvider('anthropic')?.auth.oauth).toBeDefined()
+    expect(offered.find(entry => entry.key === recordKeyFor('anthropic'))?.methods.map(one => one.id))
+      .toEqual(['api-key'])
+    // `openai-codex` ships OAuth alone, so withholding its ChatGPT subscription
+    // login leaves no flow at all.
+    expect(catalogProvider('openai-codex')?.auth.oauth).toBeDefined()
+    expect(offered.find(entry => entry.key === recordKeyFor('openai-codex'))).toBeUndefined()
     // A key-only provider still gets a flow, because pi-ai collects the key
     // through its own prompt rather than leaving it to the settings form.
     expect(offered.find(entry => entry.key === recordKeyFor('deepseek'))?.methods.map(one => one.id))
@@ -108,7 +115,7 @@ describe('pi-ai login flows', () => {
     const ctx = await harness()
 
     await attempt(ctx, () => Promise.resolve())
-    expect(login).toHaveBeenLastCalledWith('openai-codex', 'oauth', expect.anything())
+    expect(login).toHaveBeenLastCalledWith('openrouter', 'oauth', expect.anything())
 
     await attempt(ctx, () => Promise.resolve(), { key: recordKeyFor('anthropic'), method: 'api-key' })
     expect(login).toHaveBeenLastCalledWith('anthropic', 'api_key', expect.anything())
@@ -119,7 +126,7 @@ describe('pi-ai login flows', () => {
 
     await attempt(ctx, () => Promise.resolve())
 
-    await expect(ctx.credentials.readRecord(CODEX)).resolves.toEqual({
+    await expect(ctx.credentials.readRecord(OPENROUTER)).resolves.toEqual({
       kind: 'grant',
       payload: { type: 'oauth', access: 'at', refresh: 'rt', expires: 1 },
     })
@@ -195,7 +202,7 @@ describe('pi-ai login flows', () => {
     })
 
     await expect(ctx.authorization.begin({
-      key: CODEX,
+      key: OPENROUTER,
       interaction: surface(),
       signal: controller.signal,
     })).resolves.toEqual({ status: 'cancelled' })

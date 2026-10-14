@@ -5,6 +5,12 @@ export type MessagesBehavior =
   | { readonly kind: 'complete'; readonly text: string }
   | { readonly kind: 'hold' }
   | {
+    readonly kind: 'reject'
+    readonly status: number
+    readonly errorType: string
+    readonly message: string
+  }
+  | {
     readonly kind: 'tool-use'
     readonly toolName: string
     readonly input: Record<string, unknown>
@@ -85,6 +91,19 @@ function complete(
   })
   event(response, 'message_stop', { type: 'message_stop' })
   response.end()
+}
+
+function reject(
+  response: ServerResponse,
+  status: number,
+  errorType: string,
+  message: string,
+): void {
+  response.writeHead(status, { 'content-type': 'application/json' })
+  response.end(JSON.stringify({
+    type: 'error',
+    error: { type: errorType, message },
+  }))
 }
 
 function toolUse(
@@ -185,6 +204,8 @@ export async function startMessagesFixture(
       requestStartedResolve()
       if (behavior.kind === 'complete') {
         complete(response, body, behavior.text)
+      } else if (behavior.kind === 'reject') {
+        reject(response, behavior.status, behavior.errorType, behavior.message)
       } else if (behavior.kind === 'tool-use' && requests.length === 1) {
         toolUse(response, body, behavior.toolName, behavior.input)
       } else if (

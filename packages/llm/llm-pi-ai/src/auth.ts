@@ -19,6 +19,9 @@ import {
 import type { CredentialKey, CredentialProvider, CredentialRecord } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import { LlmError } from '@deepseek-ai/dsh-llm'
+import {
+  SUBSCRIPTION_OAUTH_WITHHELD, ignoredSubscriptionMessage, isAnthropicSubscriptionToken, isSubscriptionCredential,
+} from './subscription.ts'
 
 /**
  * The record scope every credential this adapter family stores is written
@@ -135,16 +138,27 @@ function writableStore(ctx: Context): CredentialProvider {
  * record, so reads answer "nothing stored" and a delete has nothing to remove;
  * only `modify` refuses it, because a write that cannot land must not report
  * that it did.
+ *
+ * A stored subscription credential, such as a Claude Pro/Max grant left by an
+ * earlier sign-in, is reported as absent so pi-ai never sends it; the record
+ * stays on disk for the human to remove.
  * @param ctx - the plugin context carrying the optional `ctx.credentials`.
  * @returns the store to hand `createModels()`.
  */
 export function credentialStoreFrom(ctx: Context): CredentialStore {
+  const ignored = new Set<string>()
   return {
     async read(providerId) {
       const credentials = ctx.get('credentials')
       if (credentials === undefined) return undefined
       if (!isCredentialKeySegment(providerId)) return undefined
-      return toPiCredential(await credentials.readRecord(recordKeyFor(providerId)))
+      const credential = toPiCredential(await credentials.readRecord(recordKeyFor(providerId)))
+      if (credential === undefined || !isSubscriptionCredential(providerId, credential)) return credential
+      if (!ignored.has(providerId)) {
+        ignored.add(providerId)
+        ctx.logger.warn(ignoredSubscriptionMessage(`stored sign-in for "${providerId}"`))
+      }
+      return undefined
     },
     async list(): Promise<readonly CredentialInfo[]> {
       const stored = await ctx.get('credentials')?.listRecords() ?? []
@@ -153,10 +167,9 @@ export function credentialStoreFrom(ctx: Context): CredentialStore {
         // Records another plugin owns are not this collection's to report:
         // their payloads are written in a format pi-ai never agreed to.
         if (credentialKeyScope(entry.key) !== RECORD_SCOPE) continue
-        mine.push({
-          providerId: credentialKeyId(entry.key),
-          type: entry.kind === 'api-key' ? 'api_key' : 'oauth',
-        })
+        const providerId = credentialKeyId(entry.key)
+        if (entry.kind === 'grant' && SUBSCRIPTION_OAUTH_WITHHELD.has(providerId)) continue
+        mine.push({ providerId, type: entry.kind === 'api-key' ? 'api_key' : 'oauth' })
       }
       return mine
     },
@@ -197,10 +210,23 @@ export function credentialStoreFrom(ctx: Context): CredentialStore {
  * paths it is asked about (`~/.aws/credentials`, application-default
  * credentials) are facts about where this process runs, not about the project
  * under edit.
+ *
+ * A value holding an Anthropic subscription token is answered as "not set",
+ * whichever variable carries it, because pi-ai would present the request as
+ * Claude Code.
  * @param ctx - the plugin context carrying the optional `ctx.credentials`.
  * @returns the auth context to hand `createModels()`.
  */
 export function authContextFrom(ctx: Context): AuthContext {
+  const ignored = new Set<string>()
+  const answer = (name: string, value: string | undefined): string | undefined => {
+    if (value === undefined || !isAnthropicSubscriptionToken(value)) return value
+    if (!ignored.has(name)) {
+      ignored.add(name)
+      ctx.logger.warn(ignoredSubscriptionMessage(`environment variable ${name}`))
+    }
+    return undefined
+  }
   return {
     async env(name) {
       // pi-ai asks about arbitrary provider-declared names; one that is not a
@@ -209,9 +235,9 @@ export function authContextFrom(ctx: Context): AuthContext {
       if (isCredentialRefName(name)) {
         const credentials = ctx.get('credentials')
         const hit = await credentials?.resolve(credentialRef(name))
-        if (hit !== undefined) return hit.value
+        if (hit !== undefined) return answer(name, hit.value)
       }
-      return launchEnvironmentOf(ctx).get(name)?.value
+      return answer(name, launchEnvironmentOf(ctx).get(name)?.value)
     },
     async fileExists(path) {
       const expanded = path.startsWith('~/') || path === '~'

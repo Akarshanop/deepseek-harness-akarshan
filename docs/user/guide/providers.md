@@ -16,7 +16,19 @@ Keys are write-only. The page receives a redacted descriptor after saving, never
 
 Choose **Add model provider**. The card opens on **Third-party model provider**: pick a provider dsh ships with — the list shows provider ids such as `anthropic`, `openai`, `moonshotai` for Kimi, or `zai` for GLM — enter its API key, and save. The installed catalog supplies the endpoint, protocol, and model list.
 
-Providers that sign in with OAuth, such as Codex, are not supported here yet.
+## Use Claude or Codex with a plan or an API key
+
+A Claude Pro/Max or ChatGPT plan authorizes Anthropic's and OpenAI's own products, not a third-party model endpoint, so a plan never appears as a model provider here. Choose by what you have:
+
+| You have | Use | Usage is billed to |
+|---|---|---|
+| A Claude Console or OpenAI Platform API key | **Add model provider**, then `anthropic` or `openai`; the models appear in the model picker | The API key's account |
+| A Claude Pro/Max plan | **Plugins → Official → Claude Code subagent**; sign in once by running `claude` and using `/login` | Your plan's limits, as Anthropic's current terms set them |
+| A ChatGPT Plus/Pro plan | **Plugins → Official → Codex subagent**; sign in once with `codex login` | Your plan's limits, as OpenAI's current terms set them |
+
+The two subagents run the vendor's own product as an unattended agent in the session's workspace. The model you picked calls them as a tool (`subagent_claude_code` or `subagent_codex`) and receives the final answer; they are not model-picker entries because they run their own tool loop. They never ask you for approval: the provider's `permissionMode` decides what they may do. Sign-in happens in the vendor's product and this app never reads or stores those credentials. When the product is signed out or rejects its credentials, the result names an `authentication` failure and the command to run. To bound a run, set `timeoutMs` on the provider.
+
+An API key stored for a route is the only credential this app sends to a model endpoint. A Claude subscription token or a ChatGPT access token placed in a key field is refused with `INVALID_CREDENTIAL`.
 
 ## Add a custom model API
 
@@ -192,6 +204,7 @@ Every switch, its accepted values, and the protocols that take it are listed und
 ## Troubleshooting
 
 - **`MISSING_CREDENTIAL`** — Store the provider key through the Models page or supply the referenced environment variable.
+- **`INVALID_CREDENTIAL` mentioning a subscription** — The key field holds a Claude subscription token or a ChatGPT access token. Use an API key, or enable the Claude Code or Codex subagent and sign in with that product.
 - **`UNKNOWN_MODEL`** — Select a configured model or add the missing model to the custom provider.
 - **Fetching available models returns 401** — Check the key. Model discovery calls the OpenAI-compatible `GET /models` endpoint; enter models manually for endpoints that do not provide it.
 - **Fetching available models reports neither a `data` array nor a `models` object** — The endpoint's listing is in a format discovery does not read. Enter the models by hand.

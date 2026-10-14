@@ -253,6 +253,7 @@ function runSpec(
     permissionMode: DEFAULT_CODEX_PERMISSION_MODE,
     env: {},
     disposeGraceMs: DEFAULT_DISPOSE_GRACE_MS,
+    checkSignIn: false,
     spawn: () => child.handle,
     ...overrides,
   }
@@ -296,6 +297,18 @@ async function publishRun(
   return { child, run, turnStart }
 }
 
+/** The answer `account/read` gives when a ChatGPT account is signed in. */
+const SIGNED_IN_ACCOUNT = {
+  account: { type: 'chatgpt', email: null, planType: 'plus' },
+  requiresOpenaiAuth: true,
+}
+
+async function answerAccountRead(child: FakeChild, result: JsonObject = SIGNED_IN_ACCOUNT): Promise<JsonObject> {
+  const accountRead = await child.peer.nextMethod('account/read')
+  child.peer.respond(accountRead, result)
+  return accountRead
+}
+
 function agentMessage(
   text: unknown,
   phase: unknown,
@@ -328,7 +341,7 @@ function turnCompleted(
 }
 
 function expectedFailureDiagnostic(
-  stage: 'initialize' | 'thread-start' | 'turn-start' | 'turn' | 'process' | 'teardown',
+  stage: 'initialize' | 'account' | 'thread-start' | 'turn-start' | 'turn' | 'process' | 'teardown',
   category: string,
   options: {
     readonly httpStatus?: number
@@ -355,7 +368,10 @@ function expectedFailureDiagnostic(
   ) {
     fields.push(`signal: ${options.outcome.signal}`)
   }
-  return `Product subagent failure (${fields.join('; ')})`
+  const summary = `Product subagent failure (${fields.join('; ')})`
+  return category === 'authentication'
+    ? `${summary}. Codex authentication failed: sign in by running "codex login" in a terminal, or supply an API key through this provider's env.`
+    : summary
 }
 
 describe('task admission and package contracts', () => {
@@ -455,6 +471,12 @@ describe('task admission and package contracts', () => {
     }
     await expect(ctx.plugin(codex, { disposeGraceMs: MAX_TIMER_DELAY_MS + 1 }))
       .rejects.toThrow(`disposeGraceMs must be no greater than ${MAX_TIMER_DELAY_MS}`)
+    for (const timeoutMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      await expect(ctx.plugin(codex, { timeoutMs }))
+        .rejects.toThrow('timeoutMs must be a positive finite number')
+    }
+    await expect(ctx.plugin(codex, { timeoutMs: MAX_TIMER_DELAY_MS + 1 }))
+      .rejects.toThrow(`timeoutMs must be no greater than ${MAX_TIMER_DELAY_MS}`)
     await ctx.fiber.dispose()
   })
 
@@ -511,6 +533,7 @@ describe('task admission and package contracts', () => {
       const initialize = await child.peer.nextMethod('initialize')
       child.peer.respond(initialize, { userAgent: 'codex-cli 0.153.4' })
       await child.peer.nextMethod('initialized')
+      await answerAccountRead(child)
       const threadStart = await child.peer.nextMethod('thread/start')
       expect(threadStart.params).toMatchObject({ model })
       child.peer.respond(threadStart, {
@@ -613,6 +636,7 @@ describe('task admission and package contracts', () => {
     const initialize = await child.peer.nextMethod('initialize')
     child.peer.respond(initialize, { userAgent: 'codex-cli 0.153.4' })
     await child.peer.nextMethod('initialized')
+    await answerAccountRead(child)
     const threadStart = await child.peer.nextMethod('thread/start')
     expect(threadStart.params).not.toHaveProperty('model')
     child.peer.respond(threadStart, { thread: { id: 'thread-1', ephemeral: true } })
@@ -1588,7 +1612,10 @@ describe('run lifecycle and quiescence', () => {
     const scenarios = [
       ['contextWindowExceeded', 'limit', 'max-tokens', undefined],
       ['sessionBudgetExceeded', 'limit', 'error', undefined],
-      ['unauthorized', 'access-policy', 'error', undefined],
+      ['unauthorized', 'authentication', 'error', undefined],
+      ['cyberPolicy', 'access-policy', 'error', undefined],
+      [{ responseTooManyFailedAttempts: { httpStatusCode: 401 } }, 'authentication', 'error', 401],
+      [{ httpConnectionFailed: { httpStatusCode: 403 } }, 'authentication', 'error', 403],
       ['internalServerError', 'service', 'error', undefined],
       [{ httpConnectionFailed: { httpStatusCode: 503 } }, 'transport', 'error', 503],
       [{ activeTurnNotSteerable: { turnKind: 'review' } }, 'product-error', 'error', undefined],
@@ -1867,6 +1894,7 @@ describe('run lifecycle and quiescence', () => {
         permissionMode: DEFAULT_CODEX_PERMISSION_MODE,
         env: {},
         disposeGraceMs: 10,
+        checkSignIn: false,
         spawn,
       },
     )).rejects.toThrow('aborted before app-server startup')
@@ -1877,6 +1905,7 @@ describe('run lifecycle and quiescence', () => {
       permissionMode: DEFAULT_CODEX_PERMISSION_MODE,
       env: {},
       disposeGraceMs: 10,
+      checkSignIn: false,
       spawn: () => { throw new Error('SECRET_TOKEN spawn failure') },
     })
     await expect(spawnFailure)
@@ -2280,5 +2309,236 @@ describe('disposeCodexChild', () => {
     expect(String(disposalError)).not.toContain('SECRET_TOKEN')
     child.settle()
     await disposal
+  })
+})
+
+describe('authentication', () => {
+  /** Start a run with the sign-in check on, answering the handshake up to `account/read`. */
+  async function startChecked(child = fakeChild(), signal = new AbortController().signal) {
+    const starting = startCodexRun(request(undefined, signal), runSpec(child, { checkSignIn: true }))
+    const initialize = await child.peer.nextMethod('initialize')
+    child.peer.respond(initialize, { userAgent: 'codex-cli 0.153.4' })
+    await child.peer.nextMethod('initialized')
+    return { child, starting }
+  }
+
+  it('asks account/read without refreshing tokens, then proceeds when an account is signed in', async () => {
+    const { child, starting } = await startChecked()
+    const accountRead = await answerAccountRead(child)
+    expect(accountRead.params).toEqual({ refreshToken: false })
+    const threadStart = await child.peer.nextMethod('thread/start')
+    child.peer.respond(threadStart, { thread: { id: 'thread-1', ephemeral: true } })
+    const run = await starting
+    await child.peer.nextMethod('turn/start')
+    await run.dispose()
+  })
+
+  it('proceeds without an account when the configured model provider needs no OpenAI sign-in', async () => {
+    const { child, starting } = await startChecked()
+    await answerAccountRead(child, { account: null, requiresOpenaiAuth: false })
+    const threadStart = await child.peer.nextMethod('thread/start')
+    child.peer.respond(threadStart, { thread: { id: 'thread-1', ephemeral: true } })
+    const run = await starting
+    await run.dispose()
+  })
+
+  it('refuses a signed-out Codex before any thread or model request, with a fixed remediation', async () => {
+    const { child, starting } = await startChecked()
+    await answerAccountRead(child, { account: null, requiresOpenaiAuth: true })
+
+    await expect(starting).rejects.toThrow(expectedFailureDiagnostic('account', 'authentication'))
+    await expect(starting).rejects.toThrow('codex login')
+    expect(child.terminate).toHaveBeenCalled()
+    // Nothing past the handshake was sent: no thread, no turn.
+    await expect(Promise.race([
+      child.peer.nextMethod('thread/start').then(() => 'thread-start'),
+      new Promise<string>(resolve => setTimeout(() => { resolve('none') }, 50)),
+    ])).resolves.toBe('none')
+  })
+
+  it('reports a malformed account/read answer as an unknown startup failure, not a sign-in problem', async () => {
+    const { child, starting } = await startChecked()
+    await answerAccountRead(child, { account: null })
+
+    await expect(starting).rejects.toThrow(expectedFailureDiagnostic('account', 'unknown'))
+  })
+
+  it('skips the check when the explicit environment carries an API key', async () => {
+    for (const name of ['OPENAI_API_KEY', 'CODEX_API_KEY']) {
+      const ctx = new Context()
+      await ctx.plugin(SessionProjectionRegistry)
+      await mountWorkingDirectoryFixture(ctx)
+      await ctx.plugin(SubagentRuntime)
+      await ctx.plugin(LocalSubprocessRuntime)
+      const child = fakeChild()
+      vi.spyOn(ctx.subprocess, 'spawn').mockReturnValue(child.handle)
+      await ctx.plugin(codex, { env: { [name]: 'placeholder' } })
+
+      const starting = startExternalActivation(ctx, 'codex', request())
+      const initialize = await child.peer.nextMethod('initialize')
+      child.peer.respond(initialize, { userAgent: 'codex-cli 0.153.4' })
+      await child.peer.nextMethod('initialized')
+      // The wire waits for each answer, so reaching thread/start with no
+      // account/read answered proves the check did not run.
+      const threadStart = await child.peer.nextMethod('thread/start')
+      child.peer.respond(threadStart, { thread: { id: 'thread-1', ephemeral: true } })
+      const run = await starting
+      await run.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('reports a credential the endpoint rejected during retries as authentication, not a generic error', async () => {
+    const { child, run, turnStart } = await publishRun()
+    child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+    const retry = (attempt: number): JsonObject => ({
+      method: 'error',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        willRetry: true,
+        error: {
+          message: `Reconnecting... ${attempt}/5 SECRET_TOKEN`,
+          codexErrorInfo: { responseStreamDisconnected: { httpStatusCode: 401 } },
+        },
+      },
+    })
+    child.peer.send(
+      retry(1),
+      retry(2),
+      turnCompleted('failed', 'turn-1', 'thread-1', { message: 'unexpected status 401 SECRET_TOKEN', codexErrorInfo: 'other' }),
+    )
+
+    const result = await run.result
+    expect(result.stopReason).toBe('error')
+    expect(result.diagnostic).toBe(expectedFailureDiagnostic('turn', 'authentication'))
+    expect(result.diagnostic).not.toContain('SECRET_TOKEN')
+    await run.dispose()
+  })
+
+  it('keeps a generic failure generic when no rejection was observed, and ignores unrelated or malformed notifications', async () => {
+    const { child, run, turnStart } = await publishRun()
+    child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+    child.peer.send(
+      // Another thread's rejection, a non-object error, a non-object info, and a non-auth status.
+      { method: 'error', params: { threadId: 'other-thread', error: { codexErrorInfo: { responseStreamDisconnected: { httpStatusCode: 401 } } } } },
+      { method: 'error', params: { threadId: 'thread-1', error: 'boom' } },
+      { method: 'error', params: { threadId: 'thread-1', error: { codexErrorInfo: 'other' } } },
+      { method: 'error', params: { threadId: 'thread-1', error: { codexErrorInfo: { responseStreamDisconnected: { httpStatusCode: 502 } } } } },
+      turnCompleted('failed', 'turn-1', 'thread-1', { codexErrorInfo: 'other' }),
+    )
+
+    const result = await run.result
+    expect(result.diagnostic).toBe(expectedFailureDiagnostic('turn', 'product-error'))
+    await run.dispose()
+  })
+
+  it('does not reclassify a limit or service failure because a rejection was seen earlier', async () => {
+    const { child, run, turnStart } = await publishRun()
+    child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+    child.peer.send(
+      { method: 'error', params: { threadId: 'thread-1', error: { codexErrorInfo: { responseStreamDisconnected: { httpStatusCode: 401 } } } } },
+      turnCompleted('failed', 'turn-1', 'thread-1', { codexErrorInfo: 'usageLimitExceeded' }),
+    )
+
+    await expect(run.result).resolves.toMatchObject({ diagnostic: expectedFailureDiagnostic('turn', 'limit') })
+    await run.dispose()
+  })
+})
+
+describe('run limit', () => {
+  async function limitedRun(timeoutMs: number, signal = new AbortController().signal) {
+    return await publishRun(fakeChild(), signal, { timeoutMs })
+  }
+
+  it('settles an overrunning run as a timeout error, keeping partial output and interrupting Codex', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const { child, run, turnStart } = await limitedRun(5_000)
+      child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+      child.peer.send(agentMessage('partial answer', 'final_answer'))
+      await nextTask()
+
+      await vi.advanceTimersByTimeAsync(5_000)
+      const interrupt = await child.peer.nextMethod('turn/interrupt')
+      expect(interrupt.params).toEqual({ threadId: 'thread-1', turnId: 'turn-1' })
+
+      await expect(run.result).resolves.toEqual({
+        output: [{ type: 'text', text: 'partial answer' }],
+        diagnostic: expectedFailureDiagnostic('turn', 'timeout'),
+        stopReason: 'error',
+      })
+      await run.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('applies the configured limit to runs started through the registered provider', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const ctx = new Context()
+      await ctx.plugin(SessionProjectionRegistry)
+      await mountWorkingDirectoryFixture(ctx)
+      await ctx.plugin(SubagentRuntime)
+      await ctx.plugin(LocalSubprocessRuntime)
+      const child = fakeChild()
+      vi.spyOn(ctx.subprocess, 'spawn').mockReturnValue(child.handle)
+      await ctx.plugin(codex, { env: { OPENAI_API_KEY: 'placeholder' }, timeoutMs: 7_000 })
+
+      const starting = startExternalActivation(ctx, 'codex', request())
+      const initialize = await child.peer.nextMethod('initialize')
+      child.peer.respond(initialize, { userAgent: 'codex-cli 0.153.4' })
+      await child.peer.nextMethod('initialized')
+      const threadStart = await child.peer.nextMethod('thread/start')
+      child.peer.respond(threadStart, { thread: { id: 'thread-1', ephemeral: true } })
+      const run = await starting
+      const turnStart = await child.peer.nextMethod('turn/start')
+      child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+      expect(vi.getTimerCount()).toBe(1)
+
+      await vi.advanceTimersByTimeAsync(7_000)
+      await expect(run.result).resolves.toMatchObject({
+        stopReason: 'error',
+        diagnostic: expectedFailureDiagnostic('turn', 'timeout'),
+      })
+      await run.dispose()
+      await ctx.fiber.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('settles parent cancellation before the limit as aborted and leaves no timer behind', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const controller = new AbortController()
+      const { child, run, turnStart } = await limitedRun(5_000, controller.signal)
+      child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+
+      controller.abort()
+      await expect(run.result).resolves.toMatchObject({ stopReason: 'aborted' })
+      expect(vi.getTimerCount()).toBe(0)
+      await run.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('clears the timer when the run completes first, so a late deadline cannot change the result', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const { child, run, turnStart } = await limitedRun(5_000)
+      child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+      child.peer.send(agentMessage('done', 'final_answer'), turnCompleted('completed'))
+
+      await expect(run.result).resolves.toEqual({ output: [{ type: 'text', text: 'done' }], stopReason: 'completed' })
+      expect(vi.getTimerCount()).toBe(0)
+      await vi.advanceTimersByTimeAsync(10_000)
+      await expect(run.result).resolves.toMatchObject({ stopReason: 'completed' })
+      await run.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

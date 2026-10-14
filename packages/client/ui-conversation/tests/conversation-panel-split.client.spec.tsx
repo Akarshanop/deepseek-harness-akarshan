@@ -5,6 +5,7 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SessionReference } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { WorkspaceId, WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { ConversationPanel } from '../src/client/skeleton/ConversationPanel.tsx'
@@ -39,11 +40,10 @@ const ROWS: Rows = {
   s5: { id: 's5', displayTitle: 'Child', blank: false, origin: 'subagent', updatedAt: 8, retainedBy: {} },
 }
 
-type Workspaces = { items: { workspaceId: string; sessionIds: string[] }[] }
-const WORKSPACES: Workspaces = { items: [
-  { workspaceId: 'w1', sessionIds: ['s9'] },
-  { workspaceId: 'w2', sessionIds: ['s1', 's2'] },
-] }
+const WORKSPACES: WorkspaceSnapshot = { items: [
+  { workspaceId: 'w1' as WorkspaceId, path: '/w1', title: 'W1', sessionIds: ['s9'] as unknown as readonly SessionId[], createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' },
+  { workspaceId: 'w2' as WorkspaceId, path: '/w2', title: 'W2', sessionIds: ['s1', 's2'] as unknown as readonly SessionId[], createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' },
+], archivedSessionIds: [], pinnedSessionIds: [], state: 'idle', phase: 'ready', error: null }
 
 const addLabel = zh['split.add']
 const closeLabel = zh['split.close']
@@ -55,7 +55,7 @@ const withMain = (id: string | undefined, rows: Rows = ROWS): Rows =>
  * Render the panel with `order` as the open Sessions and `main` as the sidebar selection.
  * Sessions in `order` other than `main` get a pane record, as the real owner provides.
  */
-function setup(options: { order?: readonly string[]; main?: string; rows?: Rows; workspaces?: Workspaces } = {}) {
+function setup(options: { order?: readonly string[]; main?: string; rows?: Rows; workspaces?: WorkspaceSnapshot } = {}) {
   const { workspaces = WORKSPACES } = options
   let main = options.main
   let order = options.order ?? (main === undefined ? [] : [main])
@@ -81,7 +81,7 @@ function setup(options: { order?: readonly string[]; main?: string; rows?: Rows;
   const SessionProvider: ConversationPanelProps['SessionProvider'] = ({ children }): ReactNode => children
   const renderSlot = ((key: string) => <div data-slot={key} />) as ConversationPanelProps['renderSlot']
   const usePanes = ((select: (value: ReturnType<typeof state>) => unknown) => select(state())) as ConversationPanelProps['usePanes']
-  const useWorkspaces = ((select: (value: Workspaces) => unknown) => select(workspaces)) as ConversationPanelProps['useWorkspaces']
+  const useWorkspaces = ((select: (value: WorkspaceSnapshot) => unknown) => select(workspaces)) as ConversationPanelProps['useWorkspaces']
   const t = makeTranslate(zh, commonZh) as ConversationPanelProps['t']
   const element = () => {
     const current = withMain(main, rows)
@@ -313,7 +313,7 @@ describe('ConversationPanel open Sessions', () => {
     })
 
     it('offers no new Session without a Workspace', () => {
-      setup({ main: 's1', workspaces: { items: [] } })
+      setup({ main: 's1', workspaces: { items: [], archivedSessionIds: [], pinnedSessionIds: [], state: 'idle', phase: 'ready', error: null } })
       fireEvent.click(screen.getByLabelText(addLabel))
       expect(screen.queryByText(zh['split.new'])).toBeNull()
     })

@@ -11,6 +11,7 @@ import {
   query as officialQuery,
   type Options,
   type Query,
+  type SDKAssistantMessageError,
   type SDKMessage,
   type SDKResultMessage,
   type SpawnOptions,
@@ -32,6 +33,7 @@ import {
   type SubprocessOutcome,
   type SubprocessSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
+import { deadline, timeoutOf, type Deadline } from '@deepseek-ai/dsh-timeout'
 import {
   claudeSpawnSpec,
   ManagedClaudeCodeProcess,
@@ -67,6 +69,8 @@ type ClaudeCodeFailureStage =
 
 type ClaudeCodeFailureCategory =
   | 'limit'
+  | 'authentication'
+  | 'timeout'
   | 'product-error'
   | 'invalid-result'
   | 'process'
@@ -77,6 +81,22 @@ interface ClaudeCodeFailureFacts {
   readonly category: ClaudeCodeFailureCategory
   readonly outcome?: SubprocessOutcome | undefined
 }
+
+/** Timeout code stamped on the wall-clock deadline of one run. */
+const CLAUDE_CODE_RUN_TIMEOUT = 'CLAUDE_CODE_RUN_TIMEOUT'
+
+/** Fixed remedy appended to every `authentication` failure diagnostic. */
+const AUTHENTICATION_HINT = 'Claude Code authentication failed: sign in by running "claude" and using /login in a terminal, or supply ANTHROPIC_API_KEY through this provider\'s env.'
+
+/** Assistant-message errors meaning the credential or account cannot be used. */
+const AUTHENTICATION_ASSISTANT_ERRORS: ReadonlySet<SDKAssistantMessageError> = new Set([
+  'authentication_failed',
+  'oauth_org_not_allowed',
+  'account_on_hold',
+])
+
+/** Result HTTP statuses meaning the credential was rejected or forbidden. */
+const AUTHENTICATION_API_STATUSES: ReadonlySet<number | null | undefined> = new Set([401, 403])
 
 function failureDiagnostic(facts: ClaudeCodeFailureFacts): string {
   const fields = [
@@ -92,7 +112,10 @@ function failureDiagnostic(facts: ClaudeCodeFailureFacts): string {
   if (signal !== null && signal !== undefined) {
     fields.push(`signal: ${signal}`)
   }
-  return `Product subagent failure (${fields.join('; ')})`
+  const summary = `Product subagent failure (${fields.join('; ')})`
+  return facts.category === 'authentication'
+    ? `${summary}. ${AUTHENTICATION_HINT}`
+    : summary
 }
 
 class ClaudeCodeFailure extends Error {
@@ -158,6 +181,8 @@ export interface ClaudeCodeRunSpec {
   readonly env: Record<string, string>
   /** Subprocess termination grace passed to the shared managed-range owner. */
   readonly disposeGraceMs: number
+  /** Wall-clock limit for one run in milliseconds; omitted for no limit. */
+  readonly timeoutMs?: number
   /** Shared subprocess service spawn operation. */
   readonly spawn: (spec: SubprocessSpawnSpec) => SubprocessHandle
   /** Host diagnostic sink for a product failure kept outside model-visible text. */
@@ -201,12 +226,21 @@ export function textTask(prompt: readonly ContentBlock[]): string {
 /**
  * Strictly derive the only SDK result that can complete a shared run.
  * @param message - an official discriminated result union.
+ * @param authenticationFailed - whether an earlier assistant message reported an
+ * authentication or account error; it classifies a failed result but never
+ * overrides a genuine success or an SDK limit.
  * @returns exact final text for a successful, non-error result.
  */
-export function successfulResult(message: SDKResultMessage): string {
+export function successfulResult(
+  message: SDKResultMessage,
+  authenticationFailed: boolean,
+): string {
   if (message.subtype !== 'success') {
-    const category = sdkFailureCategory(message.subtype)
-    const detail = category === 'unknown'
+    const sdkCategory = sdkFailureCategory(message.subtype)
+    const category = authenticationFailed && sdkCategory !== 'limit'
+      ? 'authentication'
+      : sdkCategory
+    const detail = sdkCategory === 'unknown'
       ? undefined
       : message.errors.join('; ')
     throw new ClaudeCodeFailure(
@@ -217,10 +251,12 @@ export function successfulResult(message: SDKResultMessage): string {
     )
   }
   if (message.is_error || message.result.trim().length === 0) {
+    const rejected = authenticationFailed
+      || AUTHENTICATION_API_STATUSES.has(message.api_error_status)
     throw new ClaudeCodeFailure({
       stage: 'query-run',
-      category: 'invalid-result',
-    })
+      category: rejected ? 'authentication' : 'invalid-result',
+    }, rejected && message.is_error ? new Error(message.result) : undefined)
   }
   return message.result
 }
@@ -239,19 +275,25 @@ export async function consumeClaudeQuery(
   onResult?: () => void,
 ): Promise<SubagentResult> {
   let answer: string | undefined
+  let authenticationFailed = false
   for await (const message of query) {
     if (message.type === 'system' && message.subtype === 'permission_denied') {
       onPermissionDenied?.()
       continue
     }
+    if (message.type === 'assistant') {
+      authenticationFailed ||= message.error !== undefined
+        && AUTHENTICATION_ASSISTANT_ERRORS.has(message.error)
+      continue
+    }
     if (message.type !== 'result') continue
     onResult?.()
-    answer = successfulResult(message)
+    answer = successfulResult(message, authenticationFailed)
   }
   if (answer === undefined) {
     throw new ClaudeCodeFailure({
       stage: 'query-run',
-      category: 'invalid-result',
+      category: authenticationFailed ? 'authentication' : 'invalid-result',
     })
   }
   return {
@@ -378,6 +420,8 @@ export function claudeQueryOptions(
 
 /**
  * Start one official Claude Agent SDK query and publish its one-shot run.
+ * When `spec.timeoutMs` is set, the run is cancelled at expiry and settles as a
+ * `timeout` error rather than `aborted`.
  * @param request - resolved shared subagent request.
  * @param spec - Workspace, environment, process service, and diagnostic policy.
  * @returns the published run after both Query and the real CLI handle exist.
@@ -392,7 +436,14 @@ export async function startClaudeCodeRun(
   }
 
   const controller = new AbortController()
+  let limit: Deadline | undefined
+  const stopDeadline = (): void => {
+    const armed = limit
+    limit = undefined
+    armed?.[Symbol.dispose]()
+  }
   const requestCancel = (): void => {
+    stopDeadline()
     if (!controller.signal.aborted) {
       controller.abort(new Error('subagent-claude-code: run cancelled locally'))
     }
@@ -519,6 +570,21 @@ export async function startClaudeCodeRun(
   const publishedChild = child
   const publishedProcessFailure = childProcessFailure
   let receivedResult = false
+  let timedOut = false
+  const expiry = spec.timeoutMs === undefined
+    ? undefined
+    : deadline(request.signal, spec.timeoutMs, CLAUDE_CODE_RUN_TIMEOUT)
+  limit = expiry
+  // Rejects at expiry even when the SDK ignores cancellation; the first cause wins.
+  const expired = new Promise<never>((_resolve, reject) => {
+    expiry?.signal.addEventListener('abort', () => {
+      if (timeoutOf(expiry.signal, CLAUDE_CODE_RUN_TIMEOUT) === undefined) return
+      timedOut = true
+      reject(new ClaudeCodeFailure({ stage: 'query-run', category: 'timeout' }))
+      requestCancel()
+    }, { once: true })
+  })
+  void expired.catch(() => {})
   const result = settleRunResult({
     attempt: async () => {
       try {
@@ -532,8 +598,10 @@ export async function startClaudeCodeRun(
             ))
           }, () => {
             receivedResult = true
+            stopDeadline()
           }),
           publishedProcessFailure,
+          expired,
         ])
       } catch (error: unknown) {
         const processOutcome = managedProcess?.outcome
@@ -558,11 +626,13 @@ export async function startClaudeCodeRun(
         throw error instanceof ClaudeCodeFailure
           ? error
           : new ClaudeCodeFailure(facts, thrown(error))
+      } finally {
+        stopDeadline()
       }
     },
     collectOutput: () => [],
     collectDiagnostic: () => diagnostic,
-    cancelled: () => controller.signal.aborted,
+    cancelled: () => controller.signal.aborted && !timedOut,
     onError: spec.onError,
     signal: request.signal,
     onAbort,

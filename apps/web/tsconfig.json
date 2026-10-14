@@ -36,6 +36,7 @@
     "tests/code-card-layout.e2e.ts",
     "tests/code-language.snapshot.ts",
     "tests/scaffold.ts",
+    "tests/split-panes.e2e.ts",
     "tests/connection-recovery.e2e.ts",
     "tests/server-restart.e2e.ts",
     "tests/voice-input.e2e.ts",
@@ -213,6 +214,15 @@
     },
     {
       "path": "../../packages/test-support/client-runtime"
+    },
+    {
+      "path": "../../packages/test-support/llm-replay"
+    },
+    {
+      "path": "../../packages/test-support/loader-smoke"
+    },
+    {
+      "path": "../../packages/test-support/session-snapshot"
     },
     {
       "path": "../../packages/test-support/remote-mock"

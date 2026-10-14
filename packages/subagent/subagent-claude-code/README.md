@@ -44,6 +44,7 @@ The layer inserts Host rows only, so any profile can select it, including the sh
 | `env` | `{}` | Explicit SDK/CLI environment layered over the credential-scrubbed parent environment |
 | `permissionMode` | `dontAsk` | Native non-interactive permission policy fixed for every run from this provider instance |
 | `disposeGraceMs` | `3000` | Grace between the shared managed-range owner's termination tiers |
+| `timeoutMs` | no limit | Optional wall-clock limit in milliseconds, positive and at most 2147483647, for one run; expiry cancels the run and settles it as an `error` with category `timeout` |
 
 | `permissionMode` value | Native behavior |
 |---|---|
@@ -53,7 +54,7 @@ The layer inserts Host rows only, so any profile can select it, including the sh
 | `plan` | Run in native planning mode, deny execution approval, and return the completed plan as the final answer |
 | `bypassPermissions` | Explicitly set the SDK's dangerous confirmation and bypass permission checks |
 
-The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-subagent-claude-code) is the exhaustive source for every accepted field and its JSDoc. A configured `model` passes unchanged to every query from that provider instance; omission leaves native model selection in force. Credential-shaped ambient variables are removed before the explicit `env` overlay, so an API key intended for the child must be supplied there. The provider omits the SDK `settingSources` option, so Claude Code reads the host's normal user, project, and local settings relative to the selected child working directory. It does not copy or filter those files, create or modify login state, inspect `PATH`, or fall back to a host `claude` executable.
+The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-subagent-claude-code) is the exhaustive source for every accepted field and its JSDoc. A configured `model` passes unchanged to every query from that provider instance; omission leaves native model selection in force. Credential-shaped ambient variables such as `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` are removed before the explicit `env` overlay, so a credential intended for the child must be supplied there. The provider omits the SDK `settingSources` option, so Claude Code reads the host's normal user, project, and local settings relative to the selected child working directory. It does not copy or filter those files, create or modify login state, inspect `PATH`, or fall back to a host `claude` executable.
 
 <a id="exposing-the-tool"></a>
 ### Exposing the tool
@@ -81,6 +82,10 @@ The completion notice contains the final Claude Code answer, or the stop reason 
 ### Failure and recovery
 
 An install that omits optional dependencies, uses an unsupported platform, or loses the selected payload leaves the provider dormant and fails the first delegation at the SDK startup boundary with a safe `query-start` / `unknown` failure fact; there is no host-CLI fallback. The original product error stays on the internal cause chain and in the provider's Host log. A cancelled run settles as `aborted`.
+
+A signed-out CLI, a credential rejected with HTTP 401 or 403, or an organization or account restriction that Claude Code reports fails the run with category `authentication`. The diagnostic keeps the fixed facts and ends with one fixed sentence: `Claude Code authentication failed: sign in by running "claude" and using /login in a terminal, or supply ANTHROPIC_API_KEY through this provider's env.` Raw CLI error text stays out of the diagnostic. The provider never reads, copies, stores, or injects login state or tokens, so recovery happens in the host's own Claude Code login or in the provider's `env`. Rate-limit and billing errors are not authentication failures and surface as `invalid-result`. Claude Code retries an HTTP 401 with backoff for several minutes before it reports the failure, so a configured `timeoutMs` bounds how long the delegation waits.
+
+When `timeoutMs` is set, a run that has not delivered its terminal result within the limit is cancelled the way caller cancellation is and settles as `error` with `stage: query-run; category: timeout`, never `aborted`. Caller cancellation still settles as `aborted`, and a limit that elapses after the SDK delivered the terminal result has no effect.
 
 -----
 
@@ -110,6 +115,10 @@ This section explains how the provider drives a real Claude Code CLI and where t
 ### Run flow
 
 A start accepts only a non-empty sequence of text blocks and derives the child cwd from the parent session. It creates a private `AbortController`, calls the official SDK `query()` with the exact concatenated task, and publishes the run only after the SDK's custom-spawn hook has supplied a live CLI handle owned by the subprocess seam. The provider iterates the complete message stream and accepts only a `result` message with `subtype: "success"`, `is_error: false`, and a nonblank `result`, followed by normal iterator completion. Every other outcome maps to a fixed-category `error` diagnostic naming the lifecycle stage and observed process outcome — the category set lives in [`src/run.ts`](src/run.ts). Local cancellation wins the result race and maps to `aborted` without a failure diagnostic.
+
+An assistant message whose `error` is `authentication_failed`, `oauth_org_not_allowed`, or `account_on_hold`, or a failed result with HTTP status 401 or 403, selects category `authentication`. An SDK limit result keeps `limit`, and a genuinely successful result is never reclassified.
+
+With `timeoutMs`, a shared deadline races the stream. Expiry aborts the private controller as local cancellation does and settles the run as a `timeout` error; the timer is cleared at the terminal result, at cancellation, and when the run settles.
 
 </details>
 
@@ -149,7 +158,7 @@ Independent of the parent request cache. Reuse depends only on Claude Code's own
 
 #### What the model sees
 
-Through `dsh-tool-subagent`, the parent model first receives a child id, then the final Claude Code answer or a failure notice with its stop reason and safe diagnostic. Diagnostics contain only fixed stage, category, and observed protocol or process facts. Product reasoning, intermediate messages, tool activity, stderr, usage, product identifiers, commands, paths, and raw protocol payloads are not copied into the parent Session.
+Through `dsh-tool-subagent`, the parent model first receives a child id, then the final Claude Code answer or a failure notice with its stop reason and safe diagnostic. Diagnostics contain only fixed stage, category, and observed protocol or process facts; an `authentication` failure adds one fixed sentence naming how to sign in. Product reasoning, intermediate messages, tool activity, stderr, usage, product identifiers, commands, paths, and raw protocol payloads are not copied into the parent Session.
 
 #### Token effect
 
@@ -169,12 +178,12 @@ These limits define when this provider is a poor fit or needs special operationa
 - **One fresh query and process per run** — there is no continuation, resume, pooling, progress stream, or product-session persistence.
 - **Static instance selection** — Profile rows fix provider names, optional models, and tool bindings; calls cannot choose or change either a provider or model dynamically, and every exposed tool needs a unique `toolName`.
 - **Host settings are intentionally authoritative** — when `model` is omitted, project and user settings choose it; native settings always retain the remaining tools and behavior, and the provider does not provide a filtered or hermetic production mode.
-- **Authentication and account state remain native** — the Bundle supplies the CLI but does not create an account, log in, or rewrite Claude settings; configuration and authentication failures surface with their lifecycle stage and the safe `unknown` fallback rather than a separate public classification.
+- **Authentication and account state remain native** — the Bundle supplies the CLI but does not create an account, log in, or rewrite Claude settings; sign-in problems are classified as `authentication` with a fixed remedy, while other configuration failures surface with their lifecycle stage and the safe `unknown` fallback.
 - **The SDK platform payload is required at delegation time** — installs that omit optional dependencies, unsupported platforms, and missing or damaged payloads fail at the first query; there is no host-CLI fallback.
 - **No human interaction path** — `AskUserQuestion` is disabled, permission prompts are denied, MCP elicitation is declined, and blocking dialogs fail closed instead of suspending.
 - **Assistant payload is final text only** — failed runs can also expose a separate safe diagnostic; reasoning, intermediate messages, tool traffic, usage, stderr, and workspace diffs remain outside the parent Session. Task identity and terminal results are retained in the parent log.
 - **No optional shared capabilities** — `agentOptions`, output schemas, child personas, tool filtering, and harness depth enforcement are rejected by the shared service for this provider.
-- **No wall-clock timeout or side-effect rollback** — the caller cancels long work, and files or external systems changed before cancellation are not restored.
+- **Optional wall-clock limit and no side-effect rollback** — without `timeoutMs` the caller cancels long work; with it, expiry cancels the run the same way, and files or external systems changed before cancellation are not restored.
 
 <a id="dev-note"></a>
 ### Dev Note

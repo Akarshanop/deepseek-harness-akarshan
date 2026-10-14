@@ -27,8 +27,10 @@ import type {
   SubprocessOutcome,
   SubprocessSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
+import { deadline } from '@deepseek-ai/dsh-timeout'
 import {
   CodexAppServerWire,
+  CodexNotSignedInError,
   type CodexWireFailureFacts,
 } from './wire.ts'
 
@@ -70,12 +72,17 @@ export const DEFAULT_CODEX_PERMISSION_MODE: CodexPermissionMode = 'never'
 
 type CodexFailureStage =
   | 'initialize'
+  | 'account'
   | 'thread-start'
   | CodexWireFailureFacts['stage']
   | 'process'
   | 'teardown'
 
-type CodexFailureCategory = CodexWireFailureFacts['category'] | 'process'
+type CodexFailureCategory = CodexWireFailureFacts['category'] | 'process' | 'timeout'
+
+/** Fixed remediation appended to an authentication failure; it names no product output. */
+const AUTHENTICATION_HINT = 'Codex authentication failed: sign in by running "codex login" in a terminal,'
+  + ' or supply an API key through this provider\'s env.'
 
 interface CodexFailureFacts {
   readonly stage: CodexFailureStage
@@ -100,7 +107,8 @@ function failureDiagnostic(facts: CodexFailureFacts): string {
   for (const [label, value] of processFields) {
     if (value !== null && value !== undefined) fields.push(`${label}: ${value}`)
   }
-  return `Product subagent failure (${fields.join('; ')})`
+  const summary = `Product subagent failure (${fields.join('; ')})`
+  return facts.category === 'authentication' ? `${summary}. ${AUTHENTICATION_HINT}` : summary
 }
 
 class CodexRunFailure extends Error {
@@ -148,6 +156,13 @@ export interface CodexRunSpec {
   readonly env: Record<string, string>
   /** Subprocess termination grace passed to the shared managed-range owner. */
   readonly disposeGraceMs: number
+  /**
+   * Whether to ask `account/read` before the run starts. False when the
+   * environment carries an API key, which `account/read` does not report.
+   */
+  readonly checkSignIn: boolean
+  /** Wall-clock limit for the published run in milliseconds; absent means no limit. */
+  readonly timeoutMs?: number
   /** Shared subprocess service spawn operation. */
   readonly spawn: (spec: SubprocessSpawnSpec) => SubprocessHandle
   /** Diagnostic sink for a post-publication error flattened into a result. */
@@ -312,10 +327,14 @@ export async function startCodexRun(
   const onAbort = (): void => { requestCancel() }
   request.signal.addEventListener('abort', onAbort, { once: true })
 
-  let startupStage: 'initialize' | 'thread-start' = 'initialize'
+  let startupStage: 'initialize' | 'account' | 'thread-start' = 'initialize'
   try {
     wire.start()
     await Promise.race([wire.initialize(request.signal), processFailure])
+    if (spec.checkSignIn) {
+      startupStage = 'account'
+      await Promise.race([wire.requireSignedIn(request.signal), processFailure])
+    }
     startupStage = 'thread-start'
     await Promise.race([wire.startThread(spec.cwd, request.signal), processFailure])
   } catch (error: unknown) {
@@ -328,7 +347,7 @@ export async function startCodexRun(
     }
     const failure = new CodexRunFailure({
       stage: startupStage,
-      category: 'unknown',
+      category: error instanceof CodexNotSignedInError ? 'authentication' : 'unknown',
       outcome: error instanceof CodexRunFailure
         ? error.facts.outcome
         : processFailureFacts?.outcome,
@@ -369,6 +388,14 @@ export async function startCodexRun(
       ? facts
       : { ...facts, outcome }
   }
+  let timedOut = false
+  const limit = spec.timeoutMs === undefined
+    ? undefined
+    : deadline(undefined, spec.timeoutMs, 'CODEX_RUN_TIMEOUT')
+  limit?.signal.addEventListener('abort', () => {
+    timedOut = true
+    requestCancel()
+  }, { once: true })
   const publishedProcessFailure = processFailure.catch(
     async (error: unknown): Promise<never> => {
       // Frames already queued by the exiting app-server remain authoritative.
@@ -394,6 +421,13 @@ export async function startCodexRun(
         // Give stderr data already queued in Node one turn to reach the Host
         // before error settlement.
         await new Promise<void>((resolve) => { setImmediate(resolve) })
+        if (timedOut) {
+          // The deadline cancelled the turn, so whatever the wire or process
+          // reports afterwards is a consequence of the cancellation.
+          const timeoutFacts: CodexFailureFacts = { stage: 'turn', category: 'timeout' }
+          recordFailureDiagnostic(timeoutFacts)
+          throw new CodexRunFailure(timeoutFacts, thrown(error))
+        }
         const endedBeforeTerminal = wire.endedBeforeTerminal()
         if (
           endedBeforeTerminal
@@ -422,11 +456,12 @@ export async function startCodexRun(
     },
     collectOutput,
     collectDiagnostic: () => diagnostic,
-    cancelled: () => runAbort.signal.aborted,
+    cancelled: () => runAbort.signal.aborted && !timedOut,
     onError: spec.onError,
     signal: request.signal,
     onAbort,
   })
+  void result.finally(() => { limit?.[Symbol.dispose]() })
 
   return subprocessRunHandle({
     id: brandString<SessionId>(randomUUID()),

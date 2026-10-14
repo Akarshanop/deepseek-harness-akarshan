@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.2/subscription-credentials/guide.md
+/:
+  en: f1eb0cd15370e878
+  zh: cb9cf8e7ce7eb71d
+/subscription-credentials-are-no-longer-used-by-llm-pi-ai:
+  en: feee70c6a5c5c855
+  zh: fa31ac6cd3565ff8
+/subscription-credentials-are-no-longer-used-by-llm-pi-ai/change:
+  en: db4a4a6ddb089509
+  zh: 59d5dafb399ad16e
+/subscription-credentials-are-no-longer-used-by-llm-pi-ai/migration:
+  en: 963ad2e18b1e1723
+  zh: aabfeb1a785de642

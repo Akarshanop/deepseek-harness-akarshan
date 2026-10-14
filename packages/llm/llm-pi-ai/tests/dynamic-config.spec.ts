@@ -61,8 +61,10 @@ describe('login flows in a real composition', () => {
 
     // Zero routes configured: signing in is what makes a route worth adding,
     // so the offer cannot wait for a profile to name the provider.
-    const codex = ctx.authorization.describe(LlmPiAi.recordKeyFor('openai-codex'))
-    expect(codex?.methods.map(method => method.id)).toEqual(['oauth'])
+    const openrouter = ctx.authorization.describe(LlmPiAi.recordKeyFor('openrouter'))
+    expect(openrouter?.methods.map(method => method.id)).toEqual(['oauth', 'api-key'])
+    // The ChatGPT subscription login is withheld, and it was the only one that provider shipped.
+    expect(ctx.authorization.describe(LlmPiAi.recordKeyFor('openai-codex'))).toBeUndefined()
   })
 
   it('mounts without the seam, and simply offers no sign-in', async () => {

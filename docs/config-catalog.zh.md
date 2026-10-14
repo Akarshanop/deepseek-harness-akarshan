@@ -222,7 +222,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-api-session-controller`
 
 - `inject`: `agentDefaultModel` · `agents` · `attachments` · `fileUploads` · `fs` · `llm` · `sessions` · `sessionProjections` · `sessionQuery` · `typert` · `workspaceRegistry`
-- `source`: [`packages/api/session-controller/src/index.ts:80`](../packages/api/session-controller/src/index.ts)
+- `source`: [`packages/api/session-controller/src/index.ts:87`](../packages/api/session-controller/src/index.ts)
 
 ```ts config-catalog
 /** Session Controller deployment policy. */
@@ -231,6 +231,10 @@ export interface Config {
   readonly nativeOpen?: boolean
   /** Positive integral milliseconds of list work before yielding between complete rows. */
   readonly listWorkSliceMs?: number
+  /** Output-token cap for one side-question answer. */
+  readonly sideQuestionMaxOutputTokens?: number
+  /** Positive integral milliseconds before one side-question model call is abandoned. */
+  readonly sideQuestionTimeoutMs?: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-api-session-controller -->
@@ -3399,6 +3403,12 @@ export interface Config {
   permissionMode?: ClaudeCodePermissionMode
   /** Grace in milliseconds between Claude Code managed-range termination tiers. */
   disposeGraceMs?: number
+  /**
+   * Wall-clock limit in milliseconds for one run, no greater than the platform
+   * timer maximum; omitted for no limit. Expiry cancels the run and settles it
+   * as an `error` with category `timeout`, not as `aborted`.
+   */
+  timeoutMs?: number
 }
 
 /** Profile-selectable non-interactive Claude Code permission mode. */
@@ -3412,7 +3422,7 @@ export type ClaudeCodePermissionMode = typeof CLAUDE_CODE_PERMISSION_MODES[numbe
 ## `@deepseek-ai/dsh-subagent-codex`
 
 - `inject`: `subagents` · `subprocess`
-- `source`: [`packages/subagent/subagent-codex/src/index.ts:36`](../packages/subagent/subagent-codex/src/index.ts)
+- `source`: [`packages/subagent/subagent-codex/src/index.ts:43`](../packages/subagent/subagent-codex/src/index.ts)
 
 ```ts config-catalog
 /** Deployment-owned model, permission, environment, and process-release settings. */
@@ -3430,6 +3440,11 @@ export interface Config {
   permissionMode?: CodexPermissionMode
   /** Grace in milliseconds between app-server managed-range termination tiers. */
   disposeGraceMs?: number
+  /**
+   * Wall-clock limit in milliseconds for one run. When it elapses the run is
+   * cancelled and settles as an `error` with category `timeout`; omitted means no limit.
+   */
+  timeoutMs?: number
 }
 
 /** Profile-selectable non-interactive Codex permission mode. */

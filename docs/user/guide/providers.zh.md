@@ -16,7 +16,19 @@
 
 选择**添加模型提供商**。卡片默认打开在**第三方模型提供商**：选取 dsh 自带的提供商——列表显示的是提供商 id，例如 `anthropic`、`openai`、Kimi 对应的 `moonshotai`、GLM 对应的 `zai`——输入其 API 密钥并保存。已安装目录会提供端点、协议和模型列表。
 
-通过 OAuth 登录的提供商（例如 Codex）暂不支持。
+## 用套餐或 API 密钥使用 Claude 或 Codex
+
+Claude Pro/Max 或 ChatGPT 套餐授权的是 Anthropic 与 OpenAI 自己的产品，而不是第三方模型端点，因此套餐不会作为模型提供商出现在这里。按你拥有的凭据选择：
+
+| 你拥有 | 使用 | 用量计入 |
+|---|---|---|
+| Claude Console 或 OpenAI Platform 的 API 密钥 | **添加模型提供商**，再选 `anthropic` 或 `openai`；模型会出现在模型选择器中 | API 密钥所属账号 |
+| Claude Pro/Max 套餐 | **插件 → 官方 → Claude Code subagent**；先运行 `claude` 并使用 `/login` 登录一次 | 你的套餐额度，以 Anthropic 当前条款为准 |
+| ChatGPT Plus/Pro 套餐 | **插件 → 官方 → Codex subagent**；先用 `codex login` 登录一次 | 你的套餐额度，以 OpenAI 当前条款为准 |
+
+这两个子代理在会话工作区中以无人值守方式运行厂商自己的产品。你选择的模型把它们当作工具（`subagent_claude_code` 或 `subagent_codex`）调用并收到最终答案；它们因为自带工具循环，所以不是模型选择器中的条目。它们不会向你请求审批：由提供方的 `permissionMode` 决定它们可以做什么。登录在厂商产品中完成，本应用不会读取或存储这些凭据。产品未登录或拒绝其凭据时，结果会指明 `authentication` 失败及需要运行的命令。要限制单次运行时长，请在提供方上设置 `timeoutMs`。
+
+为某条路由存储的 API 密钥，是本应用发送给模型端点的唯一凭据。把 Claude 订阅令牌或 ChatGPT 访问令牌放进密钥字段会以 `INVALID_CREDENTIAL` 被拒绝。
 
 ## 添加自定义模型 API
 
@@ -192,6 +204,7 @@ DeepSeek 将省略的 `inputModalities` 视为纯文本，并拒绝空列表。�
 ## 排错
 
 - **`MISSING_CREDENTIAL`**：通过模型页存储提供商密钥，或提供被引用的环境变量。
+- **提到订阅的 `INVALID_CREDENTIAL`**：密钥字段里放的是 Claude 订阅令牌或 ChatGPT 访问令牌。请改用 API 密钥，或启用 Claude Code 或 Codex 子代理并用该产品登录。
 - **`UNKNOWN_MODEL`**：选择已配置的模型，或向自定义提供商添加缺失的模型。
 - **获取可用模型返回 401**：检查密钥。模型发现会调用 OpenAI 兼容的 `GET /models` 端点；对于不提供该端点的服务，请手动输入模型。
 - **获取可用模型提示既没有 `data` 数组也没有 `models` 对象**：端点返回的列表格式不在探测的读取范围内。请手动输入模型。

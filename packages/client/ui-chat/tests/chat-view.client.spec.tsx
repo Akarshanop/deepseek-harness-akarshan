@@ -489,6 +489,7 @@ function makeHarness(
     openFile,
     openSkill,
     openExternalLink: vi.fn(),
+    askSideQuestion: vi.fn(),
     loadOlder,
     loadThrough,
     loadImage: vi.fn(() => Promise.reject(new Error('not used'))),

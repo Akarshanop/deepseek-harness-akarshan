@@ -20,6 +20,7 @@ export interface CodexWireFailureFacts {
   readonly stage: 'turn-start' | 'turn'
   readonly category:
     | 'limit'
+    | 'authentication'
     | 'access-policy'
     | 'service'
     | 'transport'
@@ -66,6 +67,22 @@ function unattendedDecision(params: JsonObject): 'cancel' | 'decline' {
   throw new Error('subagent-codex: app-server offered no unattended approval decision')
 }
 
+/** HTTP statuses a model endpoint answers when it rejects the caller's credentials. */
+function isAuthRejection(httpStatus: number | undefined): boolean {
+  return httpStatus === 401 || httpStatus === 403
+}
+
+/**
+ * Raised when `account/read` reports that Codex needs an OpenAI sign-in and has none.
+ * It carries no product text: the run reports it as a fixed authentication fact.
+ */
+export class CodexNotSignedInError extends Error {
+  constructor() {
+    super('subagent-codex: Codex reports no signed-in account')
+    this.name = 'CodexNotSignedInError'
+  }
+}
+
 function numericHttpStatus(value: unknown): number | undefined {
   return typeof value === 'number'
     && Number.isInteger(value)
@@ -100,9 +117,8 @@ function objectFailureInfo(value: JsonObject): ParsedFailureInfo {
     case 'responseTooManyFailedAttempts':
     {
       const httpStatus = numericHttpStatus(fields.httpStatusCode)
-      return httpStatus === undefined
-        ? { category: 'transport' }
-        : { category: 'transport', httpStatus }
+      if (httpStatus === undefined) return { category: 'transport' }
+      return { category: isAuthRejection(httpStatus) ? 'authentication' : 'transport', httpStatus }
     }
     case 'activeTurnNotSteerable':
       return { category: 'product-error' }
@@ -128,9 +144,10 @@ function failureInfo(turn: JsonObject): ParsedFailureInfo {
       case 'serverOverloaded':
       case 'internalServerError':
         return { category: 'service' }
+      case 'unauthorized':
+        return { category: 'authentication' }
       case 'cyberPolicy':
       case 'misalignmentPolicyViolation':
-      case 'unauthorized':
         return { category: 'access-policy' }
       case 'badRequest':
       case 'threadRollbackFailed':
@@ -187,7 +204,8 @@ async function raceAbort<T>(pending: Promise<T>, signal: AbortSignal): Promise<T
  * One app-server connection and its single ephemeral thread/turn.
  *
  * The class deliberately exposes no generic request surface. Supporting
- * another product method must first become part of the provider contract.
+ * another product method must first become part of the provider contract;
+ * `account/read` is one, used only to report a missing sign-in.
  */
 export class CodexAppServerWire {
   private readonly transport: JsonRpcLineTransport
@@ -206,6 +224,7 @@ export class CodexAppServerWire {
   }> = []
   private lastFinalAnswer: string | undefined
   private lastUnphasedAnswer: string | undefined
+  private authRejected = false
   private diagnostic: string | undefined
   private failure: CodexWireFailureFacts | undefined
   private diagnosticOrder = 0
@@ -281,6 +300,25 @@ export class CodexAppServerWire {
   }
 
   /**
+   * Fail before any model request when Codex needs an OpenAI sign-in and has
+   * none. `account/read` does not report an API key supplied through the child
+   * environment, so callers skip this check when such a key is configured.
+   * @param signal - unpublished-start cancellation.
+   * @throws {CodexNotSignedInError} when no account is signed in.
+   */
+  async requireSignedIn(signal: AbortSignal): Promise<void> {
+    const response = object(await this.guarded(this.transport.request('account/read', {
+      refreshToken: false,
+    }, signal), signal), 'account/read response')
+    if (typeof response.requiresOpenaiAuth !== 'boolean') {
+      throw new Error('subagent-codex: app-server returned invalid account/read requiresOpenaiAuth')
+    }
+    if (response.requiresOpenaiAuth && (response.account === null || response.account === undefined)) {
+      throw new CodexNotSignedInError()
+    }
+  }
+
+  /**
    * Create the run's private ephemeral thread and retain its identity.
    * @param cwd - selected child working directory.
    * @param signal - unpublished-start cancellation.
@@ -343,7 +381,7 @@ export class CodexAppServerWire {
     }
     const status = terminal.status
     if (status !== 'completed') {
-      const parsed = failureInfo(terminal)
+      const parsed = this.withObservedRejection(failureInfo(terminal))
       this.recordFailure(parsed.httpStatus === undefined
         ? { stage: 'turn', category: parsed.category }
         : {
@@ -371,6 +409,17 @@ export class CodexAppServerWire {
       throw new Error('subagent-codex: Codex completed without a final answer')
     }
     return { output, stopReason: 'completed' }
+  }
+
+  /**
+   * Codex retries a rejected credential several times and then ends the turn
+   * with a generic error, so the rejection is only visible in the retry
+   * notifications. A generic terminal failure after one is an authentication failure.
+   */
+  private withObservedRejection(parsed: ParsedFailureInfo): ParsedFailureInfo {
+    return this.authRejected && (parsed.category === 'product-error' || parsed.category === 'unknown')
+      ? { ...parsed, category: 'authentication' }
+      : parsed
   }
 
   /**
@@ -629,11 +678,28 @@ export class CodexAppServerWire {
     }
   }
 
+  /**
+   * Remember that the endpoint rejected this thread's credentials. The
+   * notification is advisory, so a malformed one is ignored rather than failing the run.
+   */
+  private observeErrorNotification(params: JsonObject): void {
+    if (params.threadId !== this.threadId) return
+    const error = params.error
+    if (error === null || typeof error !== 'object' || Array.isArray(error)) return
+    const info = (error as JsonObject).codexErrorInfo
+    if (info === null || typeof info !== 'object' || Array.isArray(info)) return
+    if (isAuthRejection(objectFailureInfo(info as JsonObject).httpStatus)) this.authRejected = true
+  }
+
   private handleNotification(
     method: string,
     params: JsonObject,
     order?: number,
   ): void {
+    if (method === 'error') {
+      this.observeErrorNotification(params)
+      return
+    }
     if (method === 'turn/started') {
       const threadId = string(params.threadId, 'turn/started thread id')
       if (threadId !== this.threadId) return

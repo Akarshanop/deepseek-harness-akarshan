@@ -66,12 +66,13 @@ import type {} from '@deepseek-ai/dsh-fs'
 import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 import { PiAiAdapter } from './adapter.ts'
 import { authContextFrom, credentialStoreFrom } from './auth.ts'
-import { catalogProviderIds } from './catalog.ts'
+import { catalogProvider, catalogProviderIds } from './catalog.ts'
 import { assertServiceable, Config, resolveProfiles } from './config.ts'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { discoverModels } from './discovery.ts'
 import type { StoredModelDiscoveryProfile } from './discovery.ts'
 import { registerPiAiFlows } from './login.ts'
+import { assertNotSubscriptionCredential, isUnreachableProvider } from './subscription.ts'
 
 export { PiAiAdapter } from './adapter.ts'
 export type { PiAiAdapterOptions } from './adapter.ts'
@@ -114,8 +115,8 @@ function registrationFacts(profiles: ReadonlyMap<string, ResolvedPiAiProviderPro
 }
 
 /**
- * The configurable-provider directory: every installed catalog route, plus
- * every route the current profiles declare. A hand-declared route has no
+ * The configurable-provider directory: every installed catalog route that can
+ * authenticate, plus every route the current profiles declare. A hand-declared route has no
  * catalog entry, so without this union it would have no settings address and
  * configuration surfaces could neither show nor edit it.
  * @param profiles - the currently resolved provider profiles.
@@ -140,7 +141,9 @@ function directoryEntries(
       ...error === undefined ? {} : { error },
     })
   }
-  for (const provider of catalog) declare(provider, provider)
+  for (const provider of catalog) {
+    if (!isUnreachableProvider(provider, catalogProvider(provider)?.auth.apiKey !== undefined)) declare(provider, provider)
+  }
   for (const [provider, profile] of profiles) declare(provider, profile.displayName, profile.catalogError)
   return [...entries.values()]
 }
@@ -196,7 +199,12 @@ export function apply(ctx: Context, config: Config): void {
       ? (await credentials.resolve(ref))?.value
       // Without the seam the environment is the whole credential plane.
       : launchEnvironmentOf(ctx).get(ref)?.value
-    if (hit !== undefined && hit.length > 0) return assertUsableApiKey(hit, 'llm-pi-ai', ref)
+    if (hit !== undefined && hit.length > 0) {
+      const key = assertUsableApiKey(hit, 'llm-pi-ai', ref)
+      const protocols = profile.piProvider?.getModels().map(model => model.api)
+      assertNotSubscriptionCredential(provider, protocols, ref, key)
+      return key
+    }
     throw new LlmError(
       `llm-pi-ai: no credential for provider route "${provider}"; its profile resolves ${ref}, which is not`
       + ` set — store ${ref} through the credentials service (the web Models page writes it) or export it,`

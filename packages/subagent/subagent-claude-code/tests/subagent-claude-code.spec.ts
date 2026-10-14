@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import type {
   Options,
   Query,
+  SDKAssistantMessageError,
   SDKMessage,
   SDKPermissionDeniedMessage,
   SDKResultMessage,
@@ -27,7 +28,7 @@ import {
 } from 'vitest'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import SubagentRuntime from '@deepseek-ai/dsh-subagent'
+import SubagentRuntime, { type SubagentResult } from '@deepseek-ai/dsh-subagent'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type {
   SubprocessHandle,
@@ -216,9 +217,20 @@ function failure(
   } as SDKResultMessage
 }
 
+type FailureCategory =
+  | 'limit'
+  | 'authentication'
+  | 'timeout'
+  | 'product-error'
+  | 'invalid-result'
+  | 'process'
+  | 'unknown'
+
+const AUTHENTICATION_HINT = 'Claude Code authentication failed: sign in by running "claude" and using /login in a terminal, or supply ANTHROPIC_API_KEY through this provider\'s env.'
+
 function expectedFailureDiagnostic(
   stage: 'query-start' | 'query-run' | 'process' | 'teardown',
-  category: string,
+  category: FailureCategory,
   outcome?: Partial<SubprocessOutcome>,
 ): string {
   const fields = [
@@ -232,7 +244,8 @@ function expectedFailureDiagnostic(
   if (outcome?.signal !== null && outcome?.signal !== undefined) {
     fields.push(`signal: ${outcome.signal}`)
   }
-  return `Product subagent failure (${fields.join('; ')})`
+  const facts = `Product subagent failure (${fields.join('; ')})`
+  return category === 'authentication' ? `${facts}. ${AUTHENTICATION_HINT}` : facts
 }
 
 function permissionDenied(): SDKPermissionDeniedMessage {
@@ -253,9 +266,11 @@ function queryFrom(
   messages: readonly SDKMessage[],
   after?: Error,
   close = vi.fn(),
+  hold?: Promise<void>,
 ): Query {
   async function* stream(): AsyncGenerator<SDKMessage, void> {
     for (const message of messages) yield message
+    if (hold !== undefined) await hold
     if (after !== undefined) throw after
   }
   return Object.assign(stream(), { close }) as unknown as Query
@@ -275,6 +290,28 @@ function waitingQuery(signal: AbortSignal, close = vi.fn()): Query {
     })
   }
   return Object.assign(stream(), { close }) as unknown as Query
+}
+
+const LEAKED_TOKEN = 'sk-ant-oat01-LEAKED_TOKEN'
+
+function assistantMessage(error?: SDKAssistantMessageError): SDKMessage {
+  return {
+    type: 'assistant',
+    ...error === undefined ? {} : { error },
+    message: {
+      content: [{ type: 'text', text: `raw SDK text containing ${LEAKED_TOKEN}` }],
+    },
+  } as SDKMessage
+}
+
+function rejectedResult(status: number | null | undefined): SDKResultMessage {
+  return {
+    type: 'result',
+    subtype: 'success',
+    is_error: true,
+    result: `Failed to authenticate with ${LEAKED_TOKEN}`,
+    api_error_status: status,
+  } as SDKResultMessage
 }
 
 function sdkSpawnOptions(
@@ -467,6 +504,32 @@ describe('task admission and package contracts', () => {
     })).rejects.toThrow(
       `disposeGraceMs must be no greater than ${MAX_TIMER_DELAY_MS}`,
     )
+    await ctx.fiber.dispose()
+  })
+
+  it('validates the optional run timeout like the disposal grace', async () => {
+    expect(claudeCode.Config({}).timeoutMs).toBeUndefined()
+    expect(claudeCode.Config({ timeoutMs: 5 }).timeoutMs).toBe(5)
+    const ctx = new Context()
+    await ctx.plugin(SessionProjectionRegistry)
+    await mountWorkingDirectoryFixture(ctx)
+    await ctx.plugin(SubagentRuntime)
+    await ctx.plugin(LocalSubprocessRuntime)
+
+    for (const timeoutMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      await expect(ctx.plugin(claudeCode, { timeoutMs }))
+        .rejects.toThrow('timeoutMs must be a positive finite number')
+    }
+    await expect(ctx.plugin(claudeCode, {
+      timeoutMs: MAX_TIMER_DELAY_MS + 1,
+    })).rejects.toThrow(
+      `timeoutMs must be no greater than ${MAX_TIMER_DELAY_MS}`,
+    )
+    expect(ctx.subagents.list()).toEqual([])
+
+    const fiber = await ctx.plugin(claudeCode, { timeoutMs: MAX_TIMER_DELAY_MS })
+    expect(ctx.subagents.list()).toEqual(['claude-code'])
+    await fiber.dispose()
     await ctx.fiber.dispose()
   })
 
@@ -929,6 +992,35 @@ describe('query options and result mapping', () => {
     }))
   })
 
+  it('removes ambient Claude credentials unless the Config env supplies them', () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'ambient-api-key')
+    vi.stubEnv('CLAUDE_CODE_OAUTH_TOKEN', 'ambient-oauth-token')
+    const child = fakeChild()
+    const optionsWith = (env: Record<string, string>): Options => claudeQueryOptions({
+      cwd: '/workspace',
+      permissionMode: 'dontAsk',
+      env,
+      disposeGraceMs: 17,
+      spawn: () => child.handle,
+    }, new AbortController(), () => {}, () => {})
+
+    const inherited = optionsWith({})
+    expect(inherited.env).not.toHaveProperty('ANTHROPIC_API_KEY')
+    expect(inherited.env).not.toHaveProperty('CLAUDE_CODE_OAUTH_TOKEN')
+
+    const configuredKey = optionsWith({ ANTHROPIC_API_KEY: 'configured-api-key' })
+    expect(configuredKey.env).toMatchObject({ ANTHROPIC_API_KEY: 'configured-api-key' })
+    expect(configuredKey.env).not.toHaveProperty('CLAUDE_CODE_OAUTH_TOKEN')
+
+    const configuredToken = optionsWith({
+      CLAUDE_CODE_OAUTH_TOKEN: 'configured-oauth-token',
+    })
+    expect(configuredToken.env).toMatchObject({
+      CLAUDE_CODE_OAUTH_TOKEN: 'configured-oauth-token',
+    })
+    expect(configuredToken.env).not.toHaveProperty('ANTHROPIC_API_KEY')
+  })
+
   it.each(CLAUDE_CODE_PERMISSION_MODES)(
     'maps the %s mode and only confirms the dangerous bypass',
     (permissionMode) => {
@@ -971,15 +1063,15 @@ describe('query options and result mapping', () => {
   })
 
   it('accepts only a non-error success with a non-blank final result', () => {
-    expect(successfulResult(success('exact final'))).toBe('exact final')
-    expect(() => successfulResult(success('answer', true)))
+    expect(successfulResult(success('exact final'), false)).toBe('exact final')
+    expect(() => successfulResult(success('answer', true), false))
       .toThrow(expectedFailureDiagnostic('query-run', 'invalid-result'))
-    expect(() => successfulResult(success(' \n ')))
+    expect(() => successfulResult(success(' \n '), false))
       .toThrow(expectedFailureDiagnostic('query-run', 'invalid-result'))
     const sdkFailure = () => successfulResult(failure(
       'error_during_execution',
       ['SECRET_TOKEN', '/private/secret.txt'],
-    ))
+    ), false)
     expect(sdkFailure).toThrow(expectedFailureDiagnostic(
       'query-run',
       'product-error',
@@ -989,7 +1081,7 @@ describe('query options and result mapping', () => {
     expect(() => successfulResult(failure(
       'error_max_turns',
       [],
-    ))).toThrow(expectedFailureDiagnostic('query-run', 'limit'))
+    ), false)).toThrow(expectedFailureDiagnostic('query-run', 'limit'))
 
     const unknown = {
       type: 'result',
@@ -997,10 +1089,10 @@ describe('query options and result mapping', () => {
       is_error: true,
       errors: ['SECRET_TOKEN'],
     } as unknown as SDKResultMessage
-    expect(() => successfulResult(unknown))
+    expect(() => successfulResult(unknown, false))
       .toThrow(expectedFailureDiagnostic('query-run', 'unknown'))
-    expect(() => successfulResult(unknown)).not.toThrow('future_failure')
-    expect(() => successfulResult(unknown)).not.toThrow('SECRET_TOKEN')
+    expect(() => successfulResult(unknown, false)).not.toThrow('future_failure')
+    expect(() => successfulResult(unknown, false)).not.toThrow('SECRET_TOKEN')
   })
 
   it('consumes the complete stream and keeps the latest strict success', async () => {
@@ -1054,7 +1146,7 @@ describe('run publication, cancellation, and settlement', () => {
   })
 
   it('groups SDK errors by parent-action category without changing stop reasons', async () => {
-    const cases: Array<readonly [ErrorSubtype, string]> = [
+    const cases: Array<readonly [ErrorSubtype, FailureCategory]> = [
       ['error_during_execution', 'product-error'],
       ['error_max_turns', 'limit'],
       ['error_max_budget_usd', 'limit'],
@@ -1758,5 +1850,452 @@ describe('query and process disposal', () => {
     expect(result).not.toBe('timeout')
     expect(errorCause(result)).toBe(waitFailure)
     expect(child.terminate).toHaveBeenCalledOnce()
+  })
+})
+
+describe('authentication classification', () => {
+  const init = { type: 'system', subtype: 'init' } as SDKMessage
+
+  async function settle(
+    messages: readonly SDKMessage[],
+    after?: Error,
+  ): Promise<{
+    readonly result: SubagentResult
+    readonly onError: Mock<NonNullable<ClaudeCodeRunSpec['onError']>>
+  }> {
+    const fixture = fakeRun(messages, after)
+    const onError = vi.fn<NonNullable<ClaudeCodeRunSpec['onError']>>()
+    const run = await startClaudeCodeRun(request(), { ...fixture.spec, onError })
+    const result = await run.result
+    await run.dispose()
+    return { result, onError }
+  }
+
+  function expectFixedFacts(result: SubagentResult): void {
+    expect(result.diagnostic).not.toContain(LEAKED_TOKEN)
+    expect(result.diagnostic).not.toContain('sk-ant')
+    expect(result.diagnostic).not.toContain('Failed to authenticate')
+    expect(result.diagnostic).not.toContain('raw SDK text')
+  }
+
+  it.each([
+    'authentication_failed',
+    'oauth_org_not_allowed',
+    'account_on_hold',
+  ] as const)('maps an assistant %s error before an error result to authentication', async (error) => {
+    const { result, onError } = await settle([
+      init,
+      assistantMessage(error),
+      rejectedResult(null),
+    ])
+    expect(result).toEqual({
+      output: [],
+      diagnostic: expectedFailureDiagnostic('query-run', 'authentication'),
+      stopReason: 'error',
+    })
+    expect(result.diagnostic).toBe(
+      `Product subagent failure (product: Claude Code; stage: query-run; category: authentication). ${AUTHENTICATION_HINT}`,
+    )
+    expectFixedFacts(result)
+    expect(errorCause(onError.mock.calls[0]?.[0])?.message)
+      .toContain(LEAKED_TOKEN)
+  })
+
+  it('classifies from the result even when the SDK iterator then rejects like the real CLI', async () => {
+    const { result } = await settle(
+      [init, assistantMessage('authentication_failed'), rejectedResult(null)],
+      new Error('Claude Code returned an error result: Not logged in'),
+    )
+    expect(result).toEqual({
+      output: [],
+      diagnostic: expectedFailureDiagnostic('query-run', 'authentication'),
+      stopReason: 'error',
+    })
+  })
+
+  it.each([401, 403])('maps a result rejected with HTTP %i to authentication', async (status) => {
+    const { result } = await settle([init, rejectedResult(status)])
+    expect(result).toEqual({
+      output: [],
+      diagnostic: expectedFailureDiagnostic('query-run', 'authentication'),
+      stopReason: 'error',
+    })
+    expectFixedFacts(result)
+  })
+
+  it.each([
+    ['rate_limit', 429],
+    ['billing_error', 402],
+    ['overloaded', 529],
+    ['invalid_request', 400],
+    ['model_not_found', 404],
+    ['server_error', 500],
+    ['unknown', null],
+    ['max_output_tokens', undefined],
+  ] as const)('keeps the %s assistant error out of authentication', async (error, status) => {
+    const { result } = await settle([
+      init,
+      assistantMessage(error),
+      rejectedResult(status),
+    ])
+    expect(result).toEqual({
+      output: [],
+      diagnostic: expectedFailureDiagnostic('query-run', 'invalid-result'),
+      stopReason: 'error',
+    })
+    expect(result.diagnostic).not.toContain(AUTHENTICATION_HINT)
+  })
+
+  it('ignores assistant messages that carry no error', async () => {
+    const { result } = await settle([
+      assistantMessage(),
+      rejectedResult(null),
+    ])
+    expect(result).toEqual({
+      output: [],
+      diagnostic: expectedFailureDiagnostic('query-run', 'invalid-result'),
+      stopReason: 'error',
+    })
+  })
+
+  it('lets a genuinely successful result win over an earlier authentication error', async () => {
+    const rejectedStatusOnly = {
+      ...success('answer despite status'),
+      api_error_status: 401,
+    } as SDKResultMessage
+    for (const [messages, text] of [
+      [[assistantMessage('authentication_failed'), success('recovered answer')], 'recovered answer'],
+      [[rejectedStatusOnly], 'answer despite status'],
+    ] as const) {
+      const { result } = await settle(messages)
+      expect(result).toEqual({
+        output: [{ type: 'text', text }],
+        stopReason: 'completed',
+      })
+    }
+  })
+
+  it('classifies a failed or blank result after an authentication error as authentication', async () => {
+    for (const messages of [
+      [assistantMessage('authentication_failed'), success('  ')],
+      [assistantMessage('account_on_hold'), failure('error_during_execution')],
+      [assistantMessage('authentication_failed')],
+    ]) {
+      const { result } = await settle(messages)
+      expect(result).toEqual({
+        output: [],
+        diagnostic: expectedFailureDiagnostic('query-run', 'authentication'),
+        stopReason: 'error',
+      })
+    }
+  })
+
+  it('lets an SDK limit outrank an earlier authentication error', async () => {
+    for (const subtype of [
+      'error_max_turns',
+      'error_max_budget_usd',
+      'error_max_structured_output_retries',
+    ] as const) {
+      const { result } = await settle([
+        assistantMessage('authentication_failed'),
+        failure(subtype),
+      ])
+      expect(result.diagnostic).toBe(expectedFailureDiagnostic('query-run', 'limit'))
+    }
+  })
+
+  it('classifies an unrecognized failed subtype after an authentication error as authentication', () => {
+    const future: SDKResultMessage = {
+      type: 'result',
+      subtype: 'future_failure',
+      is_error: true,
+    } as never
+    expect(() => successfulResult(future, true))
+      .toThrow(expectedFailureDiagnostic('query-run', 'authentication'))
+    expect(() => successfulResult(future, false))
+      .toThrow(expectedFailureDiagnostic('query-run', 'unknown'))
+  })
+
+  it('applies the exported result rule with an explicit observed-error flag', () => {
+    expect(successfulResult(success('final'), true)).toBe('final')
+    expect(() => successfulResult(rejectedResult(null), false))
+      .toThrow(expectedFailureDiagnostic('query-run', 'invalid-result'))
+    expect(() => successfulResult(rejectedResult(null), true))
+      .toThrow(expectedFailureDiagnostic('query-run', 'authentication'))
+    expect(() => successfulResult(rejectedResult(403), false))
+      .toThrow(expectedFailureDiagnostic('query-run', 'authentication'))
+    expect(() => successfulResult(rejectedResult(401), false)).not.toThrow(LEAKED_TOKEN)
+  })
+
+  it('keeps the sign-in sentence on the facts line ahead of a permission decision', async () => {
+    const { result } = await settle([
+      permissionDenied(),
+      assistantMessage('authentication_failed'),
+      rejectedResult(null),
+    ])
+    expect(result.diagnostic).toBe(
+      `${expectedFailureDiagnostic('query-run', 'authentication')}\nClaude Code unattended decision (mode: dontAsk; request: tool permission; decision: denied): Claude Code denied the request before an interactive prompt`,
+    )
+    expectFixedFacts(result)
+  })
+})
+
+describe('wall-clock timeout', () => {
+  const init = { type: 'system', subtype: 'init' } as SDKMessage
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  function useFakeTimers(): void {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  }
+
+  type MakeQuery = (signal: AbortSignal, close: Mock) => Query
+
+  /** A query that never ends and ignores cancellation. */
+  const ignoresCancellation: MakeQuery = (_signal, close) =>
+    waitingQuery(new AbortController().signal, close)
+  /** A query that ends with an error as soon as the SDK abort signal fires. */
+  const rejectsOnCancellation: MakeQuery = (signal, close) =>
+    waitingQuery(signal, close)
+
+  function timedRun(
+    makeQuery: MakeQuery,
+    overrides: Partial<ClaudeCodeRunSpec> = {},
+  ) {
+    const child = fakeChild()
+    const close = vi.fn()
+    const sdkSignals: AbortSignal[] = []
+    queryMock.mockImplementation(({ options }) => {
+      sdkSignals.push(options.abortController!.signal)
+      options.spawnClaudeCodeProcess!(sdkSpawnOptions())
+      return makeQuery(options.abortController!.signal, close)
+    })
+    const spec: ClaudeCodeRunSpec = {
+      cwd: '/workspace',
+      permissionMode: DEFAULT_CLAUDE_CODE_PERMISSION_MODE,
+      env: {},
+      disposeGraceMs: 5,
+      spawn: () => child.handle,
+      ...overrides,
+    }
+    return { child, close, spec, sdkSignal: () => sdkSignals[0]! }
+  }
+
+  function trackResult(run: { readonly result: Promise<SubagentResult> }) {
+    const tracked: { value?: SubagentResult } = {}
+    void run.result.then((value) => { tracked.value = value })
+    return tracked
+  }
+
+  it.each([
+    ['ignores cancellation', ignoresCancellation],
+    ['rejects on cancellation', rejectsOnCancellation],
+  ])('settles a query that %s as a timeout error and tears the child down', async (_name, makeQuery) => {
+    useFakeTimers()
+    const onError = vi.fn<NonNullable<ClaudeCodeRunSpec['onError']>>()
+    const fixture = timedRun(makeQuery, { timeoutMs: 1_000, onError })
+    const run = await startClaudeCodeRun(request(), fixture.spec)
+    expect(vi.getTimerCount()).toBe(1)
+    const tracked = trackResult(run)
+
+    await vi.advanceTimersByTimeAsync(999)
+    expect(tracked.value).toBeUndefined()
+    expect(fixture.sdkSignal().aborted).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(tracked.value).toEqual({
+      output: [],
+      diagnostic: expectedFailureDiagnostic('query-run', 'timeout'),
+      stopReason: 'error',
+    })
+    expect(fixture.sdkSignal().aborted).toBe(true)
+    expect(onError).toHaveBeenCalledOnce()
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: `subagent-claude-code: ${expectedFailureDiagnostic('query-run', 'timeout')}`,
+      }),
+      'error',
+    )
+    expect(vi.getTimerCount()).toBe(0)
+
+    await run.dispose()
+    expect(fixture.close).toHaveBeenCalledOnce()
+    expect(fixture.child.terminate).toHaveBeenCalledOnce()
+    expect(fixture.child.waitForExit).toHaveBeenCalledOnce()
+  })
+
+  it('appends the exit facts a prior child exit contributed to a timeout', async () => {
+    useFakeTimers()
+    const fixture = timedRun(ignoresCancellation, { timeoutMs: 50 })
+    const run = await startClaudeCodeRun(request(), fixture.spec)
+    const tracked = trackResult(run)
+    await vi.advanceTimersByTimeAsync(10)
+    fixture.child.settle({ exitCode: 143, signal: null })
+    await vi.advanceTimersByTimeAsync(40)
+    expect(tracked.value).toEqual({
+      output: [],
+      diagnostic: expectedFailureDiagnostic('query-run', 'timeout', { exitCode: 143 }),
+      stopReason: 'error',
+    })
+    await run.dispose()
+  })
+
+  it('settles parent cancellation before the deadline as aborted and clears the timer', async () => {
+    useFakeTimers()
+    const parent = new AbortController()
+    const onError = vi.fn<NonNullable<ClaudeCodeRunSpec['onError']>>()
+    const fixture = timedRun(rejectsOnCancellation, { timeoutMs: 1_000, onError })
+    const run = await startClaudeCodeRun(
+      request(undefined, parent.signal),
+      fixture.spec,
+    )
+    expect(vi.getTimerCount()).toBe(1)
+    await vi.advanceTimersByTimeAsync(100)
+    parent.abort(new Error('parent cancelled'))
+    expect(vi.getTimerCount()).toBe(0)
+    await expect(run.result).resolves.toEqual({
+      output: [],
+      stopReason: 'aborted',
+    })
+    await vi.advanceTimersByTimeAsync(10_000)
+    await expect(run.result).resolves.toEqual({
+      output: [],
+      stopReason: 'aborted',
+    })
+    expect(onError).not.toHaveBeenCalled()
+    await run.dispose()
+  })
+
+  it.each([
+    ['parent cancellation', (parent: AbortController) => { parent.abort() }],
+    ['run disposal', (_parent: AbortController, dispose: () => void) => { dispose() }],
+  ])('clears the timer on %s even when the SDK never reacts', async (_name, cancel) => {
+    useFakeTimers()
+    const parent = new AbortController()
+    const fixture = timedRun(ignoresCancellation, { timeoutMs: 1_000 })
+    const run = await startClaudeCodeRun(
+      request(undefined, parent.signal),
+      fixture.spec,
+    )
+    expect(vi.getTimerCount()).toBe(1)
+    let disposal: Promise<void> | undefined
+    cancel(parent, () => { disposal = run.dispose() })
+    expect(vi.getTimerCount()).toBe(0)
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(fixture.sdkSignal().aborted).toBe(true)
+    await disposal
+  })
+
+  it('does not let an expiry affect a run that already completed', async () => {
+    useFakeTimers()
+    const onError = vi.fn<NonNullable<ClaudeCodeRunSpec['onError']>>()
+    const fixture = timedRun(
+      (_signal, close) => queryFrom([init, success('done')], undefined, close),
+      { timeoutMs: 1_000, onError },
+    )
+    const run = await startClaudeCodeRun(request(), fixture.spec)
+    await expect(run.result).resolves.toEqual({
+      output: [{ type: 'text', text: 'done' }],
+      stopReason: 'completed',
+    })
+    expect(vi.getTimerCount()).toBe(0)
+    await vi.advanceTimersByTimeAsync(60_000)
+    await expect(run.result).resolves.toEqual({
+      output: [{ type: 'text', text: 'done' }],
+      stopReason: 'completed',
+    })
+    expect(fixture.sdkSignal().aborted).toBe(false)
+    expect(fixture.child.terminate).not.toHaveBeenCalled()
+    expect(onError).not.toHaveBeenCalled()
+    await run.dispose()
+  })
+
+  it('disarms the deadline when the terminal result arrives before the iterator ends', async () => {
+    useFakeTimers()
+    let release!: () => void
+    const hold = new Promise<void>((resolve) => { release = resolve })
+    const fixture = timedRun(
+      (_signal, close) => queryFrom([success('late answer')], undefined, close, hold),
+      { timeoutMs: 1_000 },
+    )
+    const run = await startClaudeCodeRun(request(), fixture.spec)
+    const tracked = trackResult(run)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(vi.getTimerCount()).toBe(0)
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(tracked.value).toBeUndefined()
+    expect(fixture.sdkSignal().aborted).toBe(false)
+    release()
+    await expect(run.result).resolves.toEqual({
+      output: [{ type: 'text', text: 'late answer' }],
+      stopReason: 'completed',
+    })
+    await run.dispose()
+  })
+
+  it.each([
+    ['a failed result', (_signal: AbortSignal, close: Mock) => queryFrom([failure('error_during_execution')], undefined, close)],
+    ['an iterator failure', (_signal: AbortSignal, close: Mock) => queryFrom([init], new Error('iterator boom'), close)],
+    ['an empty stream', (_signal: AbortSignal, close: Mock) => queryFrom([], undefined, close)],
+  ])('clears the timer when %s settles the run', async (_name, makeQuery) => {
+    useFakeTimers()
+    const fixture = timedRun(makeQuery, { timeoutMs: 1_000 })
+    const run = await startClaudeCodeRun(request(), fixture.spec)
+    await expect(run.result).resolves.toMatchObject({ stopReason: 'error' })
+    expect(vi.getTimerCount()).toBe(0)
+    await run.dispose()
+  })
+
+  it('clears the timer when a child failure settles the run', async () => {
+    useFakeTimers()
+    const fixture = timedRun(ignoresCancellation, { timeoutMs: 1_000 })
+    const run = await startClaudeCodeRun(request(), fixture.spec)
+    fixture.child.fail(new Error('spawn boom'))
+    await expect(run.result).resolves.toEqual({
+      output: [],
+      diagnostic: expectedFailureDiagnostic('query-run', 'unknown'),
+      stopReason: 'error',
+    })
+    expect(vi.getTimerCount()).toBe(0)
+    await run.dispose()
+  })
+
+  it('arms no timer when no limit is configured', async () => {
+    useFakeTimers()
+    const fixture = timedRun(ignoresCancellation)
+    const run = await startClaudeCodeRun(request(), fixture.spec)
+    const tracked = trackResult(run)
+    expect(vi.getTimerCount()).toBe(0)
+    await vi.advanceTimersByTimeAsync(MAX_TIMER_DELAY_MS)
+    expect(tracked.value).toBeUndefined()
+    expect(fixture.sdkSignal().aborted).toBe(false)
+    await run.dispose()
+  })
+
+  it('applies the configured limit through the registered provider', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionProjectionRegistry)
+    await mountWorkingDirectoryFixture(ctx)
+    await ctx.plugin(SubagentRuntime)
+    await ctx.plugin(LocalSubprocessRuntime)
+    const child = fakeChild()
+    vi.spyOn(ctx.subprocess, 'spawn').mockImplementation(() => child.handle)
+    vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    queryMock.mockImplementation(({ options }) => {
+      options.spawnClaudeCodeProcess!(sdkSpawnOptions())
+      return ignoresCancellation(options.abortController!.signal, vi.fn())
+    })
+    await ctx.plugin(claudeCode, { timeoutMs: 25 })
+
+    const run = await startExternalActivation(ctx, 'claude-code', request())
+    await expect(run.result).resolves.toEqual({
+      output: [],
+      diagnostic: expectedFailureDiagnostic('query-run', 'timeout'),
+      stopReason: 'error',
+    })
+    await run.dispose()
+    expect(child.terminate).toHaveBeenCalled()
+    await ctx.fiber.dispose()
   })
 })

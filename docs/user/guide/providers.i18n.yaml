@@ -9,8 +9,11 @@
   en: 2c6b665adc256b4e
   zh: 2240e4c1573ebe9c
 /configure-models/add-a-third-party-provider:
-  en: 0fe5f88e692f618c
-  zh: 4f2e493818d8934f
+  en: d02404038b978a5b
+  zh: b201ded675cd879f
+/configure-models/use-claude-or-codex-with-a-plan-or-an-api-key:
+  en: 907d815ed81ec435
+  zh: 160aecfd4ef985c3
 /configure-models/add-a-custom-model-api:
   en: 17867305a3e1b52a
   zh: 876fedf1f6f563e4
@@ -33,5 +36,5 @@
   en: 6f52195d1502783e
   zh: 34dbbeacb541afd4
 /configure-models/troubleshooting:
-  en: 0477cd6fa2772d6b
-  zh: 780619fe998bdef7
+  en: 0fa6e8b08754d31d
+  zh: 6017a0d84c2e7d38

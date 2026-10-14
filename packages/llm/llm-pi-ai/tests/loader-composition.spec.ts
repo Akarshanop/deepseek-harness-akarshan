@@ -114,7 +114,7 @@ describe('llm-pi-ai real dormant composition', () => {
     expect(server.headers[0]?.authorization).toBe('Bearer key-from-store')
   })
 
-  it('offers OpenAI sign-in by API key only, while other subscription logins stay', async () => {
+  it('offers Claude and OpenAI sign-in by API key only, and no Codex sign-in', async () => {
     const { ctx } = await loadComposition()
     const methods = (provider: string): string[] | undefined => ctx.authorization.list()
       .find(entry => entry.key === LlmPiAi.recordKeyFor(provider))?.methods.map(method => method.id)
@@ -122,7 +122,10 @@ describe('llm-pi-ai real dormant composition', () => {
     // pi-ai's Sign in with ChatGPT needs an installation ID the harness does
     // not supply, so the route offers only its key login.
     expect(methods('openai')).toEqual(['api-key'])
-    expect(methods('anthropic')).toEqual(['oauth', 'api-key'])
+    // Claude Pro/Max and ChatGPT Codex sign-ins authorize the vendors' own
+    // clients; a third-party application may not collect them.
+    expect(methods('anthropic')).toEqual(['api-key'])
+    expect(methods('openai-codex')).toBeUndefined()
   })
 
   it('uses settings-only route headers for model discovery', async () => {

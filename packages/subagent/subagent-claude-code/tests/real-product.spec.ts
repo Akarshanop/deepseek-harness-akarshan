@@ -214,15 +214,21 @@ async function realHarness(
   behavior: MessagesBehavior,
   permissionMode?: ClaudeCodePermissionMode,
   nativeAllow: readonly string[] = [],
+  extra: { readonly omitApiKey?: boolean; readonly timeoutMs?: number } = {},
 ): Promise<{
   readonly harness: RealHarness
   readonly fixture: MessagesFixture
 }> {
   const instance = await realInstanceFixture(behavior, nativeAllow)
+  const env = extra.omitApiKey === true
+    ? Object.fromEntries(Object.entries(instance.env)
+      .filter(([name]) => name !== 'ANTHROPIC_API_KEY'))
+    : instance.env
   const { ctx, handles, spawnSpecs } = await realRuntime()
   await ctx.plugin(claudeCode, {
-    env: instance.env,
+    env,
     ...permissionMode === undefined ? {} : { permissionMode },
+    ...extra.timeoutMs === undefined ? {} : { timeoutMs: extra.timeoutMs },
     disposeGraceMs: 3_000,
   })
   const parent = {
@@ -236,7 +242,7 @@ async function realHarness(
       spawnSpecs,
       parent,
       workspace: instance.workspace,
-      env: instance.env,
+      env,
     },
     fixture: instance.fixture,
   }
@@ -552,6 +558,66 @@ describe('real Claude Agent SDK 0.3.263 and its distributed Claude Code 2.1.263 
     expect(JSON.stringify(fixture.requests[1]?.body.messages))
       .toContain('ExitPlanMode is disabled for this session')
     await run.dispose()
+    await expectQuiescent(harness.handles)
+  })
+
+  it('times out a held request, cancels the real CLI, and reports a timeout error', async () => {
+    const { harness } = await realHarness(
+      { kind: 'hold' },
+      undefined,
+      [],
+      { timeoutMs: 1_500 },
+    )
+    const run = await startRequest(harness, 'Hold until the wall-clock limit.')
+    const result = await run.result
+    expect(result).toMatchObject({ output: [], stopReason: 'error' })
+    expect(result.diagnostic).toContain(
+      'product: Claude Code; stage: query-run; category: timeout',
+    )
+    // The expiry cancels the real SDK, which terminates the CLI before disposal.
+    await expect(harness.handles[0]!.done).resolves.toHaveProperty('exitCode')
+    await run.dispose()
+    await expectQuiescent(harness.handles)
+  })
+
+  it('classifies a credential rejected with HTTP 403 as authentication without raw error text', async () => {
+    const { harness, fixture } = await realHarness({
+      kind: 'reject',
+      status: 403,
+      errorType: 'permission_error',
+      message: 'RAW_FIXTURE_REJECTION',
+    })
+    const run = await startRequest(harness, 'Exercise the rejected credential path.')
+    const result = await run.result
+    expect(observedSdkMessages.some(message =>
+      message.type === 'assistant' && message.error === 'authentication_failed')).toBe(true)
+    expect(result).toMatchObject({ output: [], stopReason: 'error' })
+    expect(result.diagnostic).toContain(
+      'product: Claude Code; stage: query-run; category: authentication',
+    )
+    expect(result.diagnostic).toContain(
+      'Claude Code authentication failed: sign in by running "claude" and using /login in a terminal, or supply ANTHROPIC_API_KEY through this provider\'s env.',
+    )
+    expect(result.diagnostic).not.toContain('RAW_FIXTURE_REJECTION')
+    expect(result.diagnostic).not.toContain(fakeKey)
+    await run.dispose()
+    expect(fixture.requests).toHaveLength(1)
+    await expectQuiescent(harness.handles)
+  })
+
+  it('classifies a signed-out CLI as authentication before any Messages request', async () => {
+    const { harness, fixture } = await realHarness({ kind: 'hold' }, undefined, [], { omitApiKey: true })
+    const run = await startRequest(harness, 'Exercise the signed-out path.')
+    const result = await run.result
+    expect(observedSdkMessages.some(message =>
+      message.type === 'assistant' && message.error === 'authentication_failed')).toBe(true)
+    expect(result).toMatchObject({ output: [], stopReason: 'error' })
+    expect(result.diagnostic).toContain(
+      'product: Claude Code; stage: query-run; category: authentication',
+    )
+    expect(result.diagnostic).not.toContain('Not logged in')
+    await run.dispose()
+    expect(fixture.requests).toHaveLength(0)
     await expectQuiescent(harness.handles)
   })
 

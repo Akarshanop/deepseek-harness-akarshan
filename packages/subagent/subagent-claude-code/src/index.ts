@@ -54,6 +54,12 @@ export interface Config {
   permissionMode?: ClaudeCodePermissionMode
   /** Grace in milliseconds between Claude Code managed-range termination tiers. */
   disposeGraceMs?: number
+  /**
+   * Wall-clock limit in milliseconds for one run, no greater than the platform
+   * timer maximum; omitted for no limit. Expiry cancels the run and settles it
+   * as an `error` with category `timeout`, not as `aborted`.
+   */
+  timeoutMs?: number
 }
 
 export const Config: z<Config> = z.object({
@@ -63,10 +69,21 @@ export const Config: z<Config> = z.object({
   permissionMode: z.union([...CLAUDE_CODE_PERMISSION_MODES])
     .default(DEFAULT_CLAUDE_CODE_PERMISSION_MODE),
   disposeGraceMs: z.number().default(DEFAULT_DISPOSE_GRACE_MS),
+  timeoutMs: z.number(),
 })
 
-type ResolvedConfig = Omit<Required<Config>, 'model'> & Pick<Config, 'model'>
+type ResolvedConfig = Omit<Required<Config>, 'model' | 'timeoutMs'>
+  & Pick<Config, 'model' | 'timeoutMs'>
 /* jscpd:ignore-end */
+
+function assertTimerBound(name: string, value: number): void {
+  assertPositiveFinite('subagent-claude-code', name, value)
+  if (value > MAX_TIMER_DELAY_MS) {
+    throw new Error(
+      `subagent-claude-code: ${name} must be no greater than ${MAX_TIMER_DELAY_MS}`,
+    )
+  }
+}
 
 /* jscpd:ignore-start -- Cordis registration and shared-seam plumbing mirror
  * the Codex sibling; each product's lifecycle remains package-private. */
@@ -103,6 +120,7 @@ class ClaudeCodeProvider implements SubagentProvider {
       permissionMode: this.config.permissionMode,
       env: this.config.env,
       disposeGraceMs: this.config.disposeGraceMs,
+      ...this.config.timeoutMs === undefined ? {} : { timeoutMs: this.config.timeoutMs },
       spawn: spawnSpec => this.ctx.subprocess.spawn(spawnSpec),
       onError: (error, stopReason) => {
         this.ctx.logger.warn(
@@ -118,7 +136,7 @@ class ClaudeCodeProvider implements SubagentProvider {
 /**
  * Register one Profile-named Claude Code provider.
  * @param ctx - context carrying shared subagent and subprocess services.
- * @param config - registry name, optional model, permission mode, child environment, and disposal grace.
+ * @param config - registry name, optional model, permission mode, child environment, disposal grace, and optional run timeout.
  */
 export function apply(ctx: Context, config: Config): void {
   const resolved: ResolvedConfig = {
@@ -127,16 +145,11 @@ export function apply(ctx: Context, config: Config): void {
     env: config.env as Record<string, string>,
     permissionMode: config.permissionMode ?? DEFAULT_CLAUDE_CODE_PERMISSION_MODE,
     disposeGraceMs: config.disposeGraceMs as number,
+    ...config.timeoutMs === undefined ? {} : { timeoutMs: config.timeoutMs },
   }
-  assertPositiveFinite(
-    'subagent-claude-code',
-    'disposeGraceMs',
-    resolved.disposeGraceMs,
-  )
-  if (resolved.disposeGraceMs > MAX_TIMER_DELAY_MS) {
-    throw new Error(
-      `subagent-claude-code: disposeGraceMs must be no greater than ${MAX_TIMER_DELAY_MS}`,
-    )
+  assertTimerBound('disposeGraceMs', resolved.disposeGraceMs)
+  if (resolved.timeoutMs !== undefined) {
+    assertTimerBound('timeoutMs', resolved.timeoutMs)
   }
   ctx.subagents.registerProvider(new ClaudeCodeProvider(
     resolved.providerName,

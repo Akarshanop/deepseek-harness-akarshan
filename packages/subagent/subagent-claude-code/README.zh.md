@@ -44,6 +44,7 @@ kind: "package-bundle"
 | `env` | `{}` | 叠加在已清理凭据的父环境之上的显式 SDK/CLI 环境 |
 | `permissionMode` | `dontAsk` | 为本提供方实例的每次运行固定的原生非交互权限策略 |
 | `disposeGraceMs` | `3000` | 共享 managed-range owner 各终止层级之间的宽限 |
+| `timeoutMs` | 无限制 | 单次运行的可选墙钟时限，单位毫秒，为正数且不超过 2147483647；超时会取消运行，并以 `error` 和类别 `timeout` 结算 |
 
 | `permissionMode` 值 | 原生行为 |
 |---|---|
@@ -53,7 +54,7 @@ kind: "package-bundle"
 | `plan` | 使用原生规划模式，拒绝执行审批，并把完整计划作为最终答案返回 |
 | `bypassPermissions` | 显式设置 SDK 的危险确认并跳过权限检查 |
 
-生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-subagent-claude-code)是每个受支持字段及其 JSDoc 的穷尽式真源。已配置的 `model` 会原样传给该提供方实例的每次 query；省略时保留原生模型选择。具有凭证特征的环境变量会在显式 `env` 覆盖生效前被移除，因此供子进程使用的 API 密钥必须在该配置中显式提供。提供方省略 SDK 的 `settingSources` 选项，因此 Claude Code 会相对于所选子级工作目录 读取宿主机常规的用户、项目与本地设置。它不会复制或过滤这些文件、创建或修改登录状态、检查 `PATH`，也不会回退到宿主 `claude` 可执行文件。
+生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-subagent-claude-code)是每个受支持字段及其 JSDoc 的穷尽式真源。已配置的 `model` 会原样传给该提供方实例的每次 query；省略时保留原生模型选择。`ANTHROPIC_API_KEY` 和 `CLAUDE_CODE_OAUTH_TOKEN` 等具有凭证特征的环境变量会在显式 `env` 覆盖生效前被移除，因此供子进程使用的凭据必须在该配置中显式提供。提供方省略 SDK 的 `settingSources` 选项，因此 Claude Code 会相对于所选子级工作目录 读取宿主机常规的用户、项目与本地设置。它不会复制或过滤这些文件、创建或修改登录状态、检查 `PATH`，也不会回退到宿主 `claude` 可执行文件。
 
 <a id="exposing-the-tool"></a>
 ### 暴露工具
@@ -81,6 +82,10 @@ Bundle 将 `tool-subagent-claude-code` 作为 Host 条目插入，因此 `subage
 ### 失败与恢复
 
 省略 optional dependencies、当前平台不受支持或所选载荷缺失的安装会让提供方保持休眠，并在第一次委派时于 SDK 启动边界报告安全的 `query-start` / `unknown` 失败事实；不存在宿主 CLI 回退。原始产品错误只保留在内部 cause 链与提供方 Host 日志中。被取消的运行以 `aborted` 结算。
+
+未登录的 CLI、被 HTTP 401 或 403 拒绝的凭据，或 Claude Code 报告的组织或账号限制，都会让运行以类别 `authentication` 失败。诊断保留固定事实，并以一条固定句子结尾：`Claude Code authentication failed: sign in by running "claude" and using /login in a terminal, or supply ANTHROPIC_API_KEY through this provider's env.` 原始 CLI 错误文本不会进入诊断。提供方从不读取、复制、存储或注入登录状态或令牌，因此恢复在宿主自己的 Claude Code 登录或提供方的 `env` 中完成。速率限制和计费错误不属于认证失败，仍以 `invalid-result` 呈现。Claude Code 会对 HTTP 401 退避重试数分钟后才报告失败，因此配置 `timeoutMs` 可以限制委派的等待时间。
+
+设置 `timeoutMs` 后，在时限内没有交付终态结果的运行会像调用方取消一样被取消，并以 `error` 和 `stage: query-run; category: timeout` 结算，绝不是 `aborted`。调用方取消仍以 `aborted` 结算，而在 SDK 已交付终态结果之后才到期的时限没有任何效果。
 
 -----
 
@@ -110,6 +115,10 @@ Bundle 将 `tool-subagent-claude-code` 作为 Host 条目插入，因此 `subage
 ### 运行流程
 
 一次启动只接受非空的文本块序列，并使用子代理服务选择的子级 cwd。它创建私有 `AbortController`，用精确拼接的任务调用官方 SDK `query()`，并仅在 SDK 的 custom-spawn 钩子已经提供由子进程 seam 管理的活动 CLI 句柄后发布运行。提供方完整迭代消息流，只接受满足 `subtype: "success"`、`is_error: false` 且 `result` 非空白、随后迭代器正常结束的 `result` 消息。其余一切结果都映射为带固定类别的 `error` 诊断，命名生命周期阶段与已观测进程结果——类别集合见 [`src/run.ts`](src/run.ts)。本地取消会在结果竞态中胜出并映射为 `aborted`，且不附带失败诊断。
+
+`error` 为 `authentication_failed`、`oauth_org_not_allowed` 或 `account_on_hold` 的助手消息，或 HTTP 状态为 401 或 403 的失败结果，会选定类别 `authentication`。SDK 的限额结果保持 `limit`，真正成功的结果永远不会被重新分类。
+
+设置 `timeoutMs` 时，一个共享的 deadline 与消息流竞速。到期会像本地取消一样中止私有控制器，并把运行以 `timeout` 错误结算；计时器在终态结果、取消以及运行结算时被清除。
 
 </details>
 
@@ -149,7 +158,7 @@ Claude Code 子级会在一个全新的 SDK query 中接收独立文本任务。
 
 #### 模型看到什么
 
-通过 `dsh-tool-subagent`，父模型先收到 child id，随后收到 Claude Code 最终答案或带停止原因与安全诊断的失败通知。诊断只包含固定的阶段、类别和已观测的协议或进程事实。产品推理、中间消息、工具活动、stderr、用量、产品标识符、命令、路径与原始协议载荷不会复制到父 Session。
+通过 `dsh-tool-subagent`，父模型先收到 child id，随后收到 Claude Code 最终答案或带停止原因与安全诊断的失败通知。诊断只包含固定的阶段、类别和已观测的协议或进程事实；`authentication` 失败会额外附带一条说明如何登录的固定句子。产品推理、中间消息、工具活动、stderr、用量、产品标识符、命令、路径与原始协议载荷不会复制到父 Session。
 
 #### Token 影响
 
@@ -169,12 +178,12 @@ Claude Code 子级会在一个全新的 SDK query 中接收独立文本任务。
 - **每次运行均新建一个 query 和一个进程**——不支持续接、恢复、池化、进度流或产品会话持久化。
 - **静态选择实例**——Profile 配置项固定提供方名称、可选模型与工具绑定；调用无法动态选择或修改提供方与模型，而且每个公开工具都需要唯一的 `toolName`。
 - **宿主设置有意保持权威**——省略 `model` 时由项目与用户设置选择模型；原生设置始终保留其余工具和行为，本提供方不提供经过筛选或与宿主环境隔离的生产模式。
-- **身份验证与账户状态仍由原生机制管理**——Bundle 会提供 CLI，但不会创建账户、登录或改写 Claude 设置；配置与身份验证失败会公开其生命周期阶段与安全的 `unknown` 回退，而不会增加单独的公开分类。
+- **身份验证与账户状态仍由原生机制管理**——Bundle 会提供 CLI，但不会创建账户、登录或改写 Claude 设置；登录问题会被归类为 `authentication` 并附带固定的补救说明，其他配置失败则公开其生命周期阶段与安全的 `unknown` 回退。
 - **委派时必须存在 SDK 平台载荷**——省略 optional dependencies 的安装、不受支持的平台以及缺失或损坏的载荷都会在第一次 query 时失败；不会回退到宿主 CLI。
 - **没有人工交互路径**——`AskUserQuestion` 被禁用，权限提示会被拒绝，MCP elicitation 会被拒绝，阻塞对话会以拒绝方式失败而不会挂起。
 - **assistant 载荷仅包含最终文本**——失败运行还可公开独立的安全诊断；推理、中间消息、工具通信、用量、stderr 与工作区差异不会进入父 Session。任务身份与终态结果保存在父日志中。
 - **没有可选的共享能力**——对于本提供方，共享服务会拒绝 `agentOptions`、输出 schema、子任务角色设定、工具筛选和 harness 深度强制约束。
-- **没有按实际经过时间触发的超时或副作用回滚**——长时间运行的工作由调用方取消，且取消前已更改的文件或外部系统不会恢复原状。
+- **可选的墙钟时限，且没有副作用回滚**——未设置 `timeoutMs` 时，长时间运行的工作由调用方取消；设置后到期会以同样方式取消运行，且取消前已更改的文件或外部系统不会恢复原状。
 
 <a id="dev-note"></a>
 ### 开发备注

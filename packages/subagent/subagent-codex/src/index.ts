@@ -32,6 +32,13 @@ export const inject = ['subagents', 'subprocess']
 
 const DEFAULT_PROVIDER_NAME = 'codex'
 
+/**
+ * Environment names that authenticate Codex with an API key. `account/read`
+ * does not report a key supplied this way, so the sign-in check is skipped
+ * when the explicit environment carries one.
+ */
+const API_KEY_ENV_NAMES: ReadonlySet<string> = new Set(['OPENAI_API_KEY', 'CODEX_API_KEY'])
+
 /** Deployment-owned model, permission, environment, and process-release settings. */
 export interface Config {
   /** Provider name on `ctx.subagents` (default `codex`). */
@@ -47,6 +54,11 @@ export interface Config {
   permissionMode?: CodexPermissionMode
   /** Grace in milliseconds between app-server managed-range termination tiers. */
   disposeGraceMs?: number
+  /**
+   * Wall-clock limit in milliseconds for one run. When it elapses the run is
+   * cancelled and settles as an `error` with category `timeout`; omitted means no limit.
+   */
+  timeoutMs?: number
 }
 
 export const Config: z<Config> = z.object({
@@ -56,9 +68,10 @@ export const Config: z<Config> = z.object({
   permissionMode: z.union([...CODEX_PERMISSION_MODES])
     .default(DEFAULT_CODEX_PERMISSION_MODE),
   disposeGraceMs: z.number().default(DEFAULT_DISPOSE_GRACE_MS),
+  timeoutMs: z.number(),
 })
 
-type ResolvedConfig = Omit<Required<Config>, 'model'> & Pick<Config, 'model'>
+type ResolvedConfig = Omit<Required<Config>, 'model' | 'timeoutMs'> & Pick<Config, 'model' | 'timeoutMs'>
 
 class CodexProvider implements SubagentProvider {
   readonly capabilities: SubagentCapabilities = NO_START_CAPABILITIES
@@ -88,6 +101,8 @@ class CodexProvider implements SubagentProvider {
       permissionMode: this.config.permissionMode,
       env: this.config.env,
       disposeGraceMs: this.config.disposeGraceMs,
+      checkSignIn: !Object.keys(this.config.env).some(entry => API_KEY_ENV_NAMES.has(entry)),
+      ...this.config.timeoutMs === undefined ? {} : { timeoutMs: this.config.timeoutMs },
       spawn: spawnSpec => this.ctx.subprocess.spawn(spawnSpec),
       onError: (error, stopReason) => {
         this.ctx.logger.warn(
@@ -102,7 +117,7 @@ class CodexProvider implements SubagentProvider {
 /**
  * Register one Profile-named Codex provider.
  * @param ctx - context carrying shared subagent and subprocess services.
- * @param config - registry name, optional model, permission mode, child environment, and disposal grace.
+ * @param config - registry name, optional model, permission mode, child environment, disposal grace, and optional run limit.
  */
 export function apply(ctx: Context, config: Config): void {
   const resolved: ResolvedConfig = {
@@ -111,6 +126,7 @@ export function apply(ctx: Context, config: Config): void {
     env: config.env as Record<string, string>,
     permissionMode: config.permissionMode ?? DEFAULT_CODEX_PERMISSION_MODE,
     disposeGraceMs: config.disposeGraceMs as number,
+    ...config.timeoutMs === undefined ? {} : { timeoutMs: config.timeoutMs },
   }
   assertPositiveFinite(
     'subagent-codex',
@@ -121,6 +137,14 @@ export function apply(ctx: Context, config: Config): void {
     throw new Error(
       `subagent-codex: disposeGraceMs must be no greater than ${MAX_TIMER_DELAY_MS}`,
     )
+  }
+  if (resolved.timeoutMs !== undefined) {
+    assertPositiveFinite('subagent-codex', 'timeoutMs', resolved.timeoutMs)
+    if (resolved.timeoutMs > MAX_TIMER_DELAY_MS) {
+      throw new Error(
+        `subagent-codex: timeoutMs must be no greater than ${MAX_TIMER_DELAY_MS}`,
+      )
+    }
   }
   ctx.subagents.registerProvider(new CodexProvider(
     resolved.providerName,

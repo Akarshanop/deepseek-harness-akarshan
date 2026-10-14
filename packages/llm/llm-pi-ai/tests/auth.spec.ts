@@ -7,7 +7,7 @@ import LocalCredentialProvider from '@deepseek-ai/dsh-credentials-local'
 import { credentialKey, credentialRef } from '@deepseek-ai/dsh-credentials'
 import { authContextFrom, credentialStoreFrom, recordKeyFor } from '../src/auth.ts'
 
-const CODEX = recordKeyFor('openai-codex')
+const OPENROUTER = recordKeyFor('openrouter')
 
 const dirs: string[] = []
 
@@ -29,7 +29,7 @@ describe('pi-ai credential store over harness records', () => {
   it('reads nothing for a provider with no record', async () => {
     const store = credentialStoreFrom(await stored())
 
-    await expect(store.read('openai-codex')).resolves.toBeUndefined()
+    await expect(store.read('openrouter')).resolves.toBeUndefined()
   })
 
   it('round-trips an api-key credential field by field', async () => {
@@ -58,10 +58,10 @@ describe('pi-ai credential store over harness records', () => {
     const store = credentialStoreFrom(ctx)
     const granted = { type: 'oauth' as const, access: 'at', refresh: 'rt', expires: 42, accountId: 'acc' }
 
-    await store.modify('openai-codex', () => Promise.resolve(granted))
+    await store.modify('openrouter', () => Promise.resolve(granted))
 
-    await expect(store.read('openai-codex')).resolves.toEqual(granted)
-    await expect(ctx.credentials.readRecord(CODEX)).resolves.toEqual({ kind: 'grant', payload: granted })
+    await expect(store.read('openrouter')).resolves.toEqual(granted)
+    await expect(ctx.credentials.readRecord(OPENROUTER)).resolves.toEqual({ kind: 'grant', payload: granted })
   })
 
   it('stores the JSON image of a grant, dropping explicitly-undefined members', async () => {
@@ -107,11 +107,11 @@ describe('pi-ai credential store over harness records', () => {
 
   it('shows the mutation the current credential and leaves it alone when declined', async () => {
     const store = credentialStoreFrom(await stored())
-    await store.modify('openai-codex', () =>
+    await store.modify('openrouter', () =>
       Promise.resolve({ type: 'oauth', access: 'first', refresh: 'r', expires: 1 }))
     const seen: unknown[] = []
 
-    const unchanged = await store.modify('openai-codex', (current) => {
+    const unchanged = await store.modify('openrouter', (current) => {
       seen.push(current)
       return Promise.resolve(undefined)
     })
@@ -123,39 +123,39 @@ describe('pi-ai credential store over harness records', () => {
   it('lists only the records this adapter family owns', async () => {
     const ctx = await stored()
     const store = credentialStoreFrom(ctx)
-    await store.modify('openai-codex', () =>
+    await store.modify('openrouter', () =>
       Promise.resolve({ type: 'oauth', access: 'at', refresh: 'rt', expires: 1 }))
     await store.modify('cloudflare', () => Promise.resolve({ type: 'api_key', key: 'k' }))
     // Another plugin's record for a provider name this one also serves: its
     // payload is written in a format pi-ai never agreed to.
-    await ctx.credentials.modifyRecord(credentialKey('llm-kimi', 'openai-codex'), () =>
+    await ctx.credentials.modifyRecord(credentialKey('llm-kimi', 'openrouter'), () =>
       Promise.resolve({ kind: 'grant', payload: { theirs: true } }))
 
     await expect(store.list()).resolves.toEqual([
-      { providerId: 'openai-codex', type: 'oauth' },
+      { providerId: 'openrouter', type: 'oauth' },
       { providerId: 'cloudflare', type: 'api_key' },
     ])
   })
 
   it('forgets a credential on delete, and stays quiet when there was none', async () => {
     const store = credentialStoreFrom(await stored())
-    await store.modify('openai-codex', () =>
+    await store.modify('openrouter', () =>
       Promise.resolve({ type: 'oauth', access: 'at', refresh: 'rt', expires: 1 }))
 
-    await store.delete('openai-codex')
-    await store.delete('openai-codex')
+    await store.delete('openrouter')
+    await store.delete('openrouter')
 
-    await expect(store.read('openai-codex')).resolves.toBeUndefined()
+    await expect(store.read('openrouter')).resolves.toBeUndefined()
   })
 
   it('reads empty but refuses to write without a credentials service', async () => {
     const store = credentialStoreFrom(new Context())
 
-    await expect(store.read('openai-codex')).resolves.toBeUndefined()
+    await expect(store.read('openrouter')).resolves.toBeUndefined()
     await expect(store.list()).resolves.toEqual([])
-    await expect(store.modify('openai-codex', () => Promise.resolve({ type: 'api_key', key: 'k' })))
+    await expect(store.modify('openrouter', () => Promise.resolve({ type: 'api_key', key: 'k' })))
       .rejects.toThrow(/mounts no credentials service/)
-    await expect(store.delete('openai-codex')).rejects.toThrow(/mounts no credentials service/)
+    await expect(store.delete('openrouter')).rejects.toThrow(/mounts no credentials service/)
   })
 
   it('treats a provider id outside the record grammar as holding nothing', async () => {
