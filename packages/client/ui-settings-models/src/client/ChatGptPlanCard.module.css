@@ -1,0 +1,105 @@
+/* Matches the provider row card on the Models page. */
+.card {
+  margin-top: 12px;
+  border: 0.5px solid var(--dsw-alias-settings-card-stroke);
+  background: var(--dsw-alias-settings-card-fill);
+  border-radius: var(--dsw-radius-xl);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Inside a provider card, which already carries the card chrome. */
+.inline {
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.title {
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.text,
+.hint,
+.account,
+.warning,
+.error,
+.confirmTitle {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.text {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.hint {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.account {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.warning {
+  color: var(--dsw-alias-state-warn-label);
+}
+
+.error {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.confirm {
+  border-radius: var(--dsw-radius-lg);
+  background: var(--dsw-alias-bg-module-platform);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.confirmTitle {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.link {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+  text-decoration: underline;
+}
+
+.continue {
+  min-width: 180px;
+}
+
+/* A command the user runs in a terminal, shown verbatim. */
+.command {
+  font-family: var(--dsw-font-markdown-code-block-font-family);
+  font-size: 12px;
+  line-height: 18px;
+  padding: 6px 10px;
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-primary);
+  user-select: all;
+}

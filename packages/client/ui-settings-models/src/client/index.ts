@@ -16,6 +16,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only: pulls the ctx.remote merge and the forwarded-event key face
 // (settings/credentials invalidations ride the allowlist) into this program.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
+import { writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ModelsSection } from './ModelsSection.tsx'
 import type { ModelsSectionInjected } from './ModelsSection.tsx'
 import { DeepSeekOnboardingDialog } from './DeepSeekOnboardingDialog.tsx'
@@ -23,6 +24,12 @@ import type { DeepSeekOnboardingInjected } from './DeepSeekOnboardingDialog.tsx'
 import { WelcomeNotice } from './WelcomeNotice.tsx'
 import type { WelcomeNoticeInjected } from './WelcomeNotice.tsx'
 import { WelcomeNoticeStore } from './welcome-store.ts'
+import { ChatGptPlanFooter, ChatGptPlanProviderExtra } from './ChatGptPlanCard.tsx'
+import type { ChatGptPlanInjected } from './ChatGptPlanCard.tsx'
+import { ChatGptPlanStore } from './chatgpt-plan.ts'
+import { ClaudePlanFooter } from './ClaudePlanCard.tsx'
+import type { ClaudePlanInjected } from './ClaudePlanCard.tsx'
+import { ClaudePlanStore } from './claude-plan.ts'
 import { ModelsSettingsStore } from './store.ts'
 import { createModelsOperations } from './operations.ts'
 import { createSettingsSchemaOperations } from './schema-operations.ts'
@@ -115,13 +122,42 @@ export function apply(ctx: ClientContext): void {
     t,
   })
 
+  const chatGpt = new ChatGptPlanStore({
+    fetch: (input, init) => globalThis.fetch(input, init),
+    writeSettings: (ns, ops) => operations.writeSettings(ns, ops, undefined),
+  })
+  const chatGptInjected = (): ChatGptPlanInjected => ({
+    hooks: { plan: chatGpt.store },
+    controller: chatGpt,
+    openPage: (url) => {
+      const tab = globalThis.open(url, '_blank')
+      if (tab === null) return false
+      tab.opener = null
+      return true
+    },
+    t,
+  })
+
+  const claudePlan = new ClaudePlanStore((input, init) => globalThis.fetch(input, init))
+  const claudePlanInjected = (): ClaudePlanInjected => ({
+    hooks: { claudePlan: claudePlan.store },
+    controller: claudePlan,
+    copyText: text => writeClipboard(text),
+    t,
+  })
+
   // Pushed invalidations converge every open surface without polling. The
   // configForms injection makes ui-settings activate first, and remote
   // dispatch preserves listener order; its listener therefore starts the
   // mirror refresh before this store joins that refresh. The welcome notice
   // follows its settings scope, so it needs no subscription here.
   ctx.effect(() => {
-    const refreshModels = (): void => { refreshIfLoaded(controller) }
+    const refreshModels = (): void => {
+      refreshIfLoaded(controller)
+      if (chatGpt.store.getSnapshot().status === 'ready') void chatGpt.load()
+      // Turning the Claude Code plugin on or off changes the registered routes.
+      if (claudePlan.store.getSnapshot().status !== 'idle') void claudePlan.load()
+    }
     const disposers = [
       ctx.remote.$on('settings/document-updated', () => { refreshModels() }),
       ctx.remote.$on('credentials/record-updated', refreshModels),
@@ -130,6 +166,7 @@ export function apply(ctx: ClientContext): void {
       ctx.on('connection/reset', refreshModels),
     ]
     return () => {
+      chatGpt.dispose()
       welcomeController.dispose()
       for (const dispose of disposers) dispose()
     }
@@ -146,6 +183,28 @@ export function apply(ctx: ClientContext): void {
       'settings.models.footer': { kind: 'list', scope: 'root' },
     },
   }, ModelsSection))
+  // Sign in with ChatGPT for the pi-ai `openai` route: a card after the
+  // provider rows, and the same panel in the add-provider card for `openai`.
+  ctx.slots.inject('settings.models.footer', () => ctx.slots.register({
+    name: 'settings.models.footer',
+    id: 'chatgpt-plan',
+    order: 0,
+    inject: chatGptInjected,
+  }, ChatGptPlanFooter))
+  // Ranked after the default priority, so a pi-ai companion plugin that
+  // registers its own card extension shadows this one instead of colliding.
+  ctx.slots.inject('settings.models.footer', () => ctx.slots.register({
+    name: 'settings.models.footer',
+    id: 'claude-plan',
+    order: 1,
+    inject: claudePlanInjected,
+  }, ClaudePlanFooter))
+  ctx.slots.inject('settings.models.provider-card', () => ctx.slots.register({
+    name: 'settings.models.provider-card',
+    key: 'llm-pi-ai',
+    priority: 100,
+    inject: chatGptInjected,
+  }, ChatGptPlanProviderExtra))
   if (!('dshDesktop' in globalThis)) ctx.slots.inject('settings.onboarding', () => ctx.slots.register({
     name: 'settings.onboarding',
     id: 'welcome-notice',

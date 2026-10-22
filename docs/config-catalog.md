@@ -537,13 +537,17 @@ export interface Config {
 ## `@deepseek-ai/dsh-client-ui-deliverables`
 
 - `inject`: `systemPrompt` · `connection` · `sessionQuery` · `sessionController` · `workspaceFiles` · `fs` · `sandboxPolicy` · `workspaceChanges`
-- `source`: [`packages/client/ui-deliverables/src/index.ts:21`](../packages/client/ui-deliverables/src/index.ts)
+- `source`: [`packages/client/ui-deliverables/src/index.ts:28`](../packages/client/ui-deliverables/src/index.ts)
 
 ```ts config-catalog
-/** Settings of the model-written explanations shown beside each changed file's comparison. */
+/** Settings of the model-written explanations, codebase docs, and judgments shown beside each changed file's comparison. */
 export interface Config {
   /** Bounds, route, and language of the explanations; they are written for every changed file unless `enabled` is false. */
   explain: ExplainConfig
+  /** Scope, bounds, route, and language of the docs written into every project a Session opens in. */
+  codebaseDocs: CodebaseDocsConfig
+  /** Bounds, route, and language of the judgments; they are written for every changed file unless `enabled` is false. */
+  judge: JudgeConfig
 }
 
 /** Bounds and wording of the explanation requests; every field is a deployment choice. */
@@ -563,6 +567,72 @@ export interface ExplainConfig {
   /** Milliseconds one explanation may take, including its wait for a free model request. */
   timeoutMs: number
   /** Language the explanation is written in. */
+  language: string
+  /** Explicit provider route; both or neither of `provider` and `model`. Without it the Session's current route is used. */
+  provider?: string
+  /** Explicit model id paired with `provider`. */
+  model?: string
+}
+
+/** Bounds, scope, and wording of the documentation requests; every field is a deployment choice. */
+export interface CodebaseDocsConfig {
+  /** Whether projects are documented at all. */
+  enabled: boolean
+  /** Project-relative directory the docs are written to; it is never documented itself. */
+  directory: string
+  /** File extensions, with their leading dot, that count as source files. */
+  extensions: string[]
+  /** Directory names skipped wherever they appear; directories whose name starts with a dot are always skipped. */
+  excludeDirectories: string[]
+  /** Source files documented per project; files beyond it, in walk order, are left out. */
+  maxFiles: number
+  /** Source files above this byte size are left out. */
+  maxFileBytes: number
+  /** Characters of one source file a request carries; a longer file is cut with a marker. */
+  maxFileChars: number
+  /** Model requests that may run at the same time across every project. */
+  concurrency: number
+  /** Output-token cap of one request, covering any reasoning the route performs. */
+  maxOutputTokens: number
+  /** Milliseconds one file's model request may take, counted from when a request slot is free. */
+  timeoutMs: number
+  /** Language the docs are written in. */
+  language: string
+  /** Whether the docs directory carries a `.gitignore` that keeps it out of git and out of the turns' change summaries. */
+  ignoreInGit: boolean
+  /** Explicit provider route; both or neither of `provider` and `model`. Without it the default model is used. */
+  provider?: string
+  /** Explicit model id paired with `provider`. */
+  model?: string
+}
+
+/** Bounds and wording of the judgment requests; every field is a deployment choice. */
+export interface JudgeConfig {
+  /** Whether changes are judged at all. */
+  enabled: boolean
+  /** Files per recorded turn whose judgment starts as soon as the turn's changes are recorded; the rest start on request. */
+  eagerFiles: number
+  /** Model requests that may run at the same time. */
+  concurrency: number
+  /** Characters of comparison text one request carries; a longer comparison is cut with a marker. */
+  maxDiffChars: number
+  /** Lines from the start of the file as it now stands that one request carries. */
+  contextLines: number
+  /** Characters of the changed file's own doc one request carries. */
+  maxDocChars: number
+  /** Docs of imported project files one request carries at most. */
+  maxRelatedDocs: number
+  /** Characters of the imported files' docs one request carries in total. */
+  maxRelatedChars: number
+  /** Characters of the project index one request carries. */
+  maxIndexChars: number
+  /** Characters of the turn's request one judgment carries. */
+  maxRequestChars: number
+  /** Output-token cap of one request, covering any reasoning the route performs. */
+  maxOutputTokens: number
+  /** Milliseconds one judgment may take, counted from when a request slot is free. */
+  timeoutMs: number
+  /** Language the judgment's prose is written in. */
   language: string
   /** Explicit provider route; both or neither of `provider` and `model`. Without it the Session's current route is used. */
   provider?: string
@@ -793,6 +863,96 @@ export interface ToolResultPruneConfig {
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-compaction-tool-result-pruner -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-context-drift -->
+<a id="deepseek-aidsh-context-drift"></a>
+
+## `@deepseek-ai/dsh-context-drift`
+
+- `inject`: `sessionProjections`
+- `source`: [`packages/session/context-drift/src/index.ts:26`](../packages/session/context-drift/src/index.ts)
+
+```ts config-catalog
+/** Plugin configuration: see {@link ContextDriftConfig}. */
+export type Config = ContextDriftConfig
+
+/** Public plugin configuration; every field is optional. */
+export interface ContextDriftConfig {
+  /** Effective context for routes without a profile and without a reported window. */
+  fallbackEffectiveTokens?: number
+  /** Fraction of the advertised window the effective context may never exceed. */
+  windowRatio?: number
+  /** Per-route effective-context overrides. */
+  modelProfiles?: ModelProfileConfig[]
+  /** Fraction of the effective context below which length scores 0. */
+  lengthOnsetRatio?: number
+  /** Human turns at which the turns signal starts rising. */
+  turnsOnset?: number
+  /** Human turns at which the turns signal reaches 1. */
+  turnsSaturation?: number
+  /** Weighted mistake count at which the mistakes signal reaches 1 − 1/e. */
+  mistakesScale?: number
+  /** Per-item weights of the mistakes count. */
+  mistakeWeights?: {
+    /** Weight of one failed tool result still in context. */
+    toolError?: number
+    /** Weight of one human correction still in context. */
+    correction?: number
+    /** Weight of one repeat-tool-call warning still in context. */
+    loopWarning?: number
+    /** Weight of one interrupted assistant reply still in context. */
+    interrupt?: number
+  }
+  /** Tool-output share at which the noise signal starts rising. */
+  toolShareOnset?: number
+  /** Tool-output share span over which the noise signal rises to 1. */
+  toolShareSpan?: number
+  /** Compactions before the layers signal starts rising. */
+  layersOnset?: number
+  /** Compaction span over which the layers signal rises to 1. */
+  layersSpan?: number
+  /** Combination weight of each signal, each in [0, 1). */
+  weights?: Partial<Record<ContextDriftSignal, number>>
+  /** Score thresholds of the drifting and high levels, and the nudge re-arm score. */
+  levels?: {
+    /** Score at which the level becomes `drifting`. */
+    drifting?: number
+    /** Score at which the level becomes `high` and clients may nudge. */
+    high?: number
+    /** Score a high session must fall below before clients nudge again after a dismissal. */
+    rearm?: number
+  }
+  /** Topic-change detection. */
+  topic?: {
+    /** Keywords a human message needs before it can start a new topic. */
+    minKeywords?: number
+    /** Share of a message's keywords that must appear in the current topic for it to stay on topic. */
+    minOverlap?: number
+    /** Newest keywords retained per topic. */
+    maxKeywords?: number
+  }
+  /** Case-insensitive regular-expression sources that mark a human message as a correction. */
+  correctionPatterns?: string[]
+  /** Compactions after which the recommendation becomes a new chat. */
+  newChatAfterCompactions?: number
+  /** Human turns after a compaction during which a high score recommends a new chat. */
+  recentCompactionTurns?: number
+}
+
+/** Exact provider/model override of the effective context. */
+export interface ModelProfileConfig {
+  /** Exact provider id of the route, as logged in `request/context`. */
+  provider: string
+  /** Exact model id of the route, as logged in `request/context`. */
+  model: string
+  /** Prompt tokens at which this model's quality starts to fall. */
+  effectiveTokens: number
+}
+
+/** One of the six scored signals; also names the dominant cause of a score. */
+export type ContextDriftSignal = 'length' | 'turns' | 'mistakes' | 'stale' | 'noise' | 'layers'
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-context-drift -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-cordis-host-runner -->
 <a id="deepseek-aidsh-cordis-host-runner"></a>
@@ -4533,7 +4693,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-workspace-changes`
 
 - `inject`: `subprocess` · `fs`
-- `source`: [`packages/deliverables/workspace-changes/src/index.ts:34`](../packages/deliverables/workspace-changes/src/index.ts)
+- `source`: [`packages/deliverables/workspace-changes/src/index.ts:36`](../packages/deliverables/workspace-changes/src/index.ts)
 
 ```ts config-catalog
 /** Snapshot, capture, and comparison bounds. Invalid values fail plugin load. */
@@ -4578,6 +4738,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 | `@deepseek-ai/dsh-client-ui-brand-official` | — | [`packages/client/ui-brand-official/src/index.ts`](../packages/client/ui-brand-official/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-chat` | — | [`packages/client/ui-chat/src/index.ts`](../packages/client/ui-chat/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-commands` | — | [`packages/client/ui-commands/src/index.ts`](../packages/client/ui-commands/src/index.ts) |
+| `@deepseek-ai/dsh-client-ui-context-drift` | — | [`packages/client/ui-context-drift/src/index.ts`](../packages/client/ui-context-drift/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-conversation` | — | [`packages/client/ui-conversation/src/index.ts`](../packages/client/ui-conversation/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-cordis` | — | [`packages/extensions/ui-cordis/src/index.ts`](../packages/extensions/ui-cordis/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-directory-picker-browse` | — | [`packages/client/ui-directory-picker-browse/src/index.ts`](../packages/client/ui-directory-picker-browse/src/index.ts) |

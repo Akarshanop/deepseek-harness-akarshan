@@ -190,14 +190,65 @@ export interface TreeBlob {
 export async function treeBlob(
   git: GitRunner, workspace: GitWorkspace, tree: string, path: string, signal: AbortSignal,
 ): Promise<TreeBlob | null> {
+  const entry = await treeEntry(git, workspace, tree, path, signal)
+  return entry?.type === 'blob' ? { oid: entry.oid, size: entry.size } : null
+}
+
+/** One entry a snapshot tree holds at a path. */
+export interface TreeEntry {
+  /** Git object type: `blob` for a file or symbolic link, `commit` for a gitlink, `tree` for a directory. */
+  type: string
+  oid: string
+  /** Object size in bytes; zero for a gitlink or tree. */
+  size: number
+}
+
+/**
+ * The entry a snapshot tree holds at one path.
+ * @param git - command runner.
+ * @param workspace - addressed repository.
+ * @param tree - snapshot tree id.
+ * @param path - slash-separated path relative to the repository root.
+ * @param signal - cancellation.
+ * @returns the entry, or null when the tree holds nothing at the path.
+ */
+export async function treeEntry(
+  git: GitRunner, workspace: GitWorkspace, tree: string, path: string, signal: AbortSignal,
+): Promise<TreeEntry | null> {
   // The path is a pathspec; literal matching keeps `*`, `?`, and `[` in a file name from selecting another entry.
   const result = ok(await git.run(['ls-tree', '-z', '-l', tree, '--', path], {
     cwd: workspace.root, env: { ...workspace.env, GIT_LITERAL_PATHSPECS: '1' }, signal,
   }), 'git ls-tree')
   const entry = result.stdout.split('\0')[0] as string
-  const match = /^\d+ (\S+) ([0-9a-f]+) +(\d+)\t/.exec(entry)
-  if (match === null || match[1] !== 'blob') return null
-  return { oid: match[2] as string, size: Number(match[3]) }
+  const match = /^\d+ (\S+) ([0-9a-f]+) +(\d+|-)\t/.exec(entry)
+  if (match === null) return null
+  return { type: match[1] as string, oid: match[2] as string, size: match[3] === '-' ? 0 : Number(match[3]) }
+}
+
+/**
+ * Write the content and mode one snapshot tree holds at each path into the
+ * work tree, replacing what is there, through a private index read from the
+ * tree. The repository's own index, objects, and refs stay unchanged.
+ * @param git - command runner.
+ * @param workspace - addressed repository.
+ * @param tree - snapshot tree id.
+ * @param paths - slash-separated paths relative to the repository root, each naming a blob in the tree.
+ * @param signal - cancellation.
+ */
+export async function checkoutPaths(
+  git: GitRunner, workspace: GitWorkspace, tree: string, paths: readonly string[], signal: AbortSignal,
+): Promise<void> {
+  if (paths.length === 0) return
+  const scratch = await mkdtemp(join(workspace.scratch, 'index-'))
+  try {
+    const env = { ...workspace.env, GIT_INDEX_FILE: join(scratch, 'index') }
+    ok(await git.run(['read-tree', tree], { cwd: workspace.root, env, signal }), 'git read-tree')
+    ok(await git.run(['checkout-index', '--force', '-z', '--stdin'], {
+      cwd: workspace.root, env, stdin: `${paths.join('\0')}\0`, signal,
+    }), 'git checkout-index')
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
 }
 
 /**

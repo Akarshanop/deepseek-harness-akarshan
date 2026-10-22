@@ -941,9 +941,14 @@ describe('plugin registration', () => {
     await tabFace.loadChangesExplain(SessionId('child-session'), 5, 1)
     expect(tabFace.hooks.changesExplain.getSnapshot()['api/changes.explain?sessionId=child-session&seq=5&index=1'])
       .toEqual({ purpose: 'Wires the app.', changes: ['Renames `a`.'] })
+    const judged = { verdict: 'pass', confidence: 90, summary: '', issues: [], checks: [], suggestions: [], basis: { docs: false, request: false } }
+    fetcher.mockResolvedValueOnce(Response.json(judged))
+    await tabFace.loadChangesJudge(SessionId('child-session'), 5, 1)
+    expect(tabFace.hooks.changesJudge.getSnapshot()['api/changes.judge?sessionId=child-session&seq=5&index=1']).toEqual(judged)
     ctx.emit('connection/reset')
     expect(tabFace.hooks.changesDiff.getSnapshot()).toEqual({})
     expect(tabFace.hooks.changesExplain.getSnapshot()).toEqual({})
+    expect(tabFace.hooks.changesJudge.getSnapshot()).toEqual({})
     // A turn that produced nothing yields no vocabulary at all.
     expect(service?.forClosing(tailOwner(undefined, 2), SessionId('viewed-session'))).toBeUndefined()
 

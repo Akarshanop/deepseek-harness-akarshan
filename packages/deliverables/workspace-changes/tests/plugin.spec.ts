@@ -1,5 +1,5 @@
 /** The plugin records each top-level turn's file changes from real git snapshots and whole-file captures, and serves their comparisons. */
-import { mkdir, mkdtemp, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -530,5 +530,158 @@ describe('workspace-changes without git', () => {
       expect(info).toHaveBeenCalledTimes(probe.available ? 0 : 1)
       await ctx.fiber.dispose()
     }
+  })
+})
+
+describe('workspace-changes rewind', () => {
+  it('puts back every file later turns changed, using each file’s earliest turn-start content', async () => {
+    const cwd = await repository()
+    await writeFile(join(cwd, 'run.sh'), '#!/bin/sh\necho 1\n', { mode: 0o755 })
+    await writeFile(join(cwd, 'b.txt'), 'x user\n')
+    const { ctx } = await boot()
+    const session = ctx.sessions.create(SessionId('rewind'), { meta: { cwd } })
+    startTurn(session, 1)
+    await settle(ctx, session)
+    await mutate(ctx, session, 1, 'edit', { file_path: 'a.txt' }, 'a.txt', () => writeFile(join(cwd, 'a.txt'), 'turn 1\n'))
+    await writeFile(join(cwd, 'created.txt'), 'shell\n')
+    await rename(join(cwd, 'same.txt'), join(cwd, 'moved.txt'))
+    await writeFile(join(cwd, 'run.sh'), '#!/bin/sh\necho 2\n')
+    await writeFile(join(cwd, 'bin.dat'), Uint8Array.of(0, 1, 2))
+    toolCall(session, 1, 'bash', { command: 'x' })
+    await mutate(ctx, session, 1, 'write', { file_path: '.env' }, '.env', () => writeFile(join(cwd, '.env'), 'A=1\n'))
+    endTurn(session, 1)
+    await settle(ctx, session)
+    startTurn(session, 2)
+    await settle(ctx, session)
+    await mutate(ctx, session, 2, 'edit', { file_path: 'a.txt' }, 'a.txt', () => writeFile(join(cwd, 'a.txt'), 'turn 2\n'))
+    await mutate(ctx, session, 2, 'write', { file_path: '.env' }, '.env', () => writeFile(join(cwd, '.env'), 'A=2\n'))
+    await mkdir(join(cwd, 'deep'))
+    await writeFile(join(cwd, 'deep', 'z.txt'), 'z\n')
+    toolCall(session, 2, 'bash', { command: 'x' })
+    endTurn(session, 2)
+    await settle(ctx, session)
+    // A file the user edits after the turns and the turns never touched stays as the user left it.
+    await writeFile(join(cwd, 'b.txt'), 'x user later\n')
+
+    expect(ctx.workspaceChanges.rewindPlan(session.id, 2)).toEqual({
+      files: ['.env', 'a.txt', 'deep/z.txt'], oversized: [], incomplete: false, shellUntracked: false,
+    })
+    expect(await ctx.workspaceChanges.rewind(session.id, 2, signal)).toEqual({
+      restored: ['.env', 'a.txt', 'deep/z.txt'], skipped: [], incomplete: false,
+    })
+    expect(await readFile(join(cwd, 'a.txt'), 'utf8')).toBe('turn 1\n')
+    expect(await readFile(join(cwd, '.env'), 'utf8')).toBe('A=1\n')
+    await expect(stat(join(cwd, 'deep', 'z.txt'))).rejects.toThrow()
+
+    expect(ctx.workspaceChanges.rewindPlan(session.id, 1)).toEqual({
+      files: ['.env', 'a.txt', 'bin.dat', 'created.txt', 'deep/z.txt', 'moved.txt', 'run.sh', 'same.txt'],
+      oversized: [], incomplete: false, shellUntracked: false,
+    })
+    const result = await ctx.workspaceChanges.rewind(session.id, 1, signal)
+    expect(result.skipped).toEqual([])
+    expect(await readFile(join(cwd, 'a.txt'), 'utf8')).toBe('l1\nl2\nl3\n')
+    expect(await readFile(join(cwd, 'same.txt'), 'utf8')).toBe('same\n')
+    expect(await readFile(join(cwd, 'run.sh'), 'utf8')).toBe('#!/bin/sh\necho 1\n')
+    expect((await stat(join(cwd, 'run.sh'))).mode & 0o111).not.toBe(0)
+    for (const gone of ['.env', 'created.txt', 'moved.txt', 'bin.dat']) await expect(stat(join(cwd, gone))).rejects.toThrow()
+    expect(await readFile(join(cwd, 'b.txt'), 'utf8')).toBe('x user later\n')
+    // The repository's own index is untouched: only the user's edit and untracked file remain.
+    expect(git(cwd, 'status', '--porcelain').split('\n').filter(Boolean).sort()).toEqual([' M b.txt', '?? run.sh'])
+  })
+
+  it('reports files a failed git command left as they are, and turns it could not record', async () => {
+    const cwd = await repository()
+    const { ctx } = await boot()
+    vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    // One git subcommand at a time is replaced by an invalid invocation, so it fails like any git error.
+    let failing: string | undefined
+    const spawn = ctx.subprocess.spawn.bind(ctx.subprocess)
+    vi.spyOn(ctx.subprocess, 'spawn').mockImplementation(request => spawn(failing !== undefined && request.argv.includes(failing)
+      ? { ...request, argv: [request.argv[0] as string, failing, '--no-such-option'] }
+      : request))
+    const session = ctx.sessions.create(SessionId('rewind-failures'), { meta: { cwd } })
+    startTurn(session, 1)
+    await settle(ctx, session)
+    await writeFile(join(cwd, 'a.txt'), 'shell a\n')
+    await writeFile(join(cwd, 'b.txt'), 'shell b\n')
+    toolCall(session, 1, 'bash', { command: 'x' })
+    endTurn(session, 1)
+    await settle(ctx, session)
+    startTurn(session, 2)
+    await settle(ctx, session)
+    failing = 'write-tree'
+    toolCall(session, 2, 'bash', { command: 'x' })
+    endTurn(session, 2)
+    await settle(ctx, session)
+    expect(ctx.workspaceChanges.rewindPlan(session.id, 1)).toMatchObject({ files: ['a.txt', 'b.txt'], incomplete: true })
+    expect(ctx.workspaceChanges.rewindPlan(session.id, 3).incomplete).toBe(false)
+
+    const failed = [{ display: 'a.txt', reason: 'failed' }, { display: 'b.txt', reason: 'failed' }]
+    for (const command of ['checkout-index', 'ls-tree']) {
+      failing = command
+      expect(await ctx.workspaceChanges.rewind(session.id, 1, signal)).toEqual({ restored: [], skipped: failed, incomplete: true })
+    }
+    failing = undefined
+    await expect(ctx.workspaceChanges.rewind(session.id, 1, AbortSignal.abort())).rejects.toThrow()
+    expect(await readFile(join(cwd, 'a.txt'), 'utf8')).toBe('shell a\n')
+    // A cancelled rewind leaves the queue usable.
+    expect(await ctx.workspaceChanges.rewind(session.id, 1, signal)).toEqual({ restored: ['a.txt', 'b.txt'], skipped: [], incomplete: true })
+    expect(await readFile(join(cwd, 'b.txt'), 'utf8')).toBe('x\n')
+  })
+
+  it('leaves nested repositories and paths it cannot remove as they are', async () => {
+    const cwd = await repository()
+    const sub = join(cwd, 'sub')
+    await mkdir(sub)
+    git(sub, 'init', '-q', '-b', 'main')
+    await writeFile(join(sub, 'inner.txt'), 'inner\n')
+    git(sub, 'add', '-A'); git(sub, 'commit', '-q', '-m', 'inner')
+    git(cwd, 'add', 'sub'); git(cwd, 'commit', '-q', '-m', 'gitlink')
+    const { ctx } = await boot()
+    vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    const session = ctx.sessions.create(SessionId('rewind-gitlink'), { meta: { cwd } })
+    startTurn(session, 1)
+    await settle(ctx, session)
+    await writeFile(join(sub, 'inner.txt'), 'inner\nmoved on\n')
+    git(sub, 'commit', '-q', '-am', 'moved on')
+    toolCall(session, 1, 'bash', { command: 'x' })
+    await mutate(ctx, session, 1, 'write', { file_path: '.env.local' }, '.env.local', () => writeFile(join(cwd, '.env.local'), 'A=1\n'))
+    endTurn(session, 1)
+    await settle(ctx, session)
+    // The created file was replaced by a directory holding user content, which a rewind must not delete.
+    await rm(join(cwd, '.env.local'))
+    await mkdir(join(cwd, '.env.local'))
+    await writeFile(join(cwd, '.env.local', 'keep.txt'), 'keep\n')
+    expect(await ctx.workspaceChanges.rewind(session.id, 1, signal)).toEqual({
+      restored: [], skipped: [{ display: '.env.local', reason: 'failed' }, { display: 'sub', reason: 'submodule' }], incomplete: false,
+    })
+    expect(await readFile(join(cwd, '.env.local', 'keep.txt'), 'utf8')).toBe('keep\n')
+  })
+
+  it('reports turns it never recorded and files whose content was not kept', async () => {
+    const cwd = await scratchDir('dsh-workspace-changes-rewind-plain-', cleanups)
+    await writeFile(join(cwd, 'small.txt'), 'small\n')
+    await writeFile(join(cwd, 'huge.txt'), 'a'.repeat(20))
+    const { ctx } = await boot({ maxFileBytes: 16 })
+    expect(ctx.workspaceChanges.rewindPlan(SessionId('unknown'), 1)).toEqual({ files: [], oversized: [], incomplete: true, shellUntracked: false })
+    expect(await ctx.workspaceChanges.rewind(SessionId('unknown'), 1, signal)).toEqual({ restored: [], skipped: [], incomplete: true })
+    const session = ctx.sessions.create(SessionId('rewind-plain'), { meta: { cwd } })
+    // The first turn this Host sees is turn 3; earlier turns ran before it.
+    startTurn(session, 3)
+    await settle(ctx, session)
+    await mutate(ctx, session, 3, 'write', { file_path: 'small.txt' }, 'small.txt', () => writeFile(join(cwd, 'small.txt'), 'changed\n'))
+    await mutate(ctx, session, 3, 'write', { file_path: 'huge.txt' }, 'huge.txt', () => writeFile(join(cwd, 'huge.txt'), 'b'.repeat(20)))
+    await mutate(ctx, session, 3, 'write', { file_path: 'made.txt' }, 'made.txt', () => writeFile(join(cwd, 'made.txt'), 'new\n'))
+    endTurn(session, 3)
+    await settle(ctx, session)
+    expect(ctx.workspaceChanges.rewindPlan(session.id, 2)).toEqual({
+      files: ['made.txt', 'small.txt'], oversized: ['huge.txt'], incomplete: true, shellUntracked: true,
+    })
+    expect(await ctx.workspaceChanges.rewind(session.id, 3, signal)).toEqual({
+      restored: ['made.txt', 'small.txt'], skipped: [{ display: 'huge.txt', reason: 'oversized' }], incomplete: false,
+    })
+    expect(await readFile(join(cwd, 'small.txt'), 'utf8')).toBe('small\n')
+    expect(await readFile(join(cwd, 'huge.txt'), 'utf8')).toBe('b'.repeat(20))
+    await expect(stat(join(cwd, 'made.txt'))).rejects.toThrow()
   })
 })

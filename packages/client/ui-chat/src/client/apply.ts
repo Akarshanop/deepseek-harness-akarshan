@@ -306,6 +306,34 @@ export function apply(ctx: Context): void {
                 // Fork or child-title failure leaves the source view unchanged.
               })
           },
+          rewind: {
+            preview: (turn, signal) => {
+              const files = ctx.get('chatRewind')
+              if (files === undefined) return Promise.reject(new Error('ui-chat: rewind needs a chatRewind provider'))
+              return files.preview(sessionId, turn, signal)
+            },
+            rewind: async (turn, atSeq) => {
+              const files = ctx.get('chatRewind')
+              if (files === undefined) throw new Error('ui-chat: rewind needs a chatRewind provider')
+              const restored = await files.restore(sessionId, turn)
+              if (restored.kind === 'running') return restored
+              const childId = await ctx.sessions.fork({ sessionId, atSeq, increaseTitle: true })
+              return { kind: 'rewound', sessionId: childId, skipped: restored.skipped }
+            },
+            open: (childId, prompt, send) => {
+              void ctx.sessions.using(childId, { source: 'chatRewind' }, async (reference) => {
+                // The draft is prepared before navigation publishes the Session, as the composer requires.
+                if (!send) ctx.get('conversation')?.input.requestDraftInitialization(reference.binding, { prompt, clearPreviousDraft: true })
+                ctx.uiWorkspace.openSession(childId)
+                if (!send) return
+                const target = await reference.ready
+                const submission = target.session.beginSubmission({ mode: 'queue', text: prompt, attachments: [] })
+                await target.session.prompt([{ type: 'text', text: prompt }], 'queue', undefined, submission.requestId)
+              }).catch(() => {
+                // The forked conversation stays open; a failed prompt is mirrored into its composer.
+              })
+            },
+          },
         }
       },
     }, ChatView)

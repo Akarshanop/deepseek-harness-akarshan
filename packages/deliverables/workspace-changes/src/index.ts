@@ -6,7 +6,8 @@
  * announced by a `workspace/changes` Session event that carries only the turn
  * number; summaries and comparisons are served through the `workspaceChanges`
  * service until the Session is disposed. Outside a git repository, or without
- * git, the summary lists file-tool edits only.
+ * git, the summary lists file-tool edits only. The same records let the
+ * service rewind the files a Session's turns changed to their earlier content.
  */
 import { homedir, tmpdir } from 'node:os'
 import type { Context } from '@deepseek-ai/cordis'
@@ -22,6 +23,7 @@ import type { WorkspaceChanges } from './types.ts'
 
 export type {
   WorkspaceChangedFile, WorkspaceChanges, WorkspaceChangesSummary, WorkspaceDiffHunk, WorkspaceFileDiff,
+  WorkspaceRewindPlan, WorkspaceRewindResult, WorkspaceRewindSkipReason,
 } from './types.ts'
 
 /** Stable Loader identity. */
@@ -116,6 +118,10 @@ export function apply(ctx: Context, config: Config): void {
   const service: WorkspaceChanges = {
     summary: (sessionId, seq) => byId.get(sessionId)?.summary(seq),
     diff: (sessionId, seq, index, signal) => byId.get(sessionId)?.diff(seq, index, signal) ?? Promise.resolve(undefined),
+    rewindPlan: (sessionId, turn) => byId.get(sessionId)?.rewindPlan(turn)
+      ?? { files: [], oversized: [], incomplete: true, shellUntracked: false },
+    rewind: (sessionId, turn, signal) => byId.get(sessionId)?.rewind(turn, signal)
+      ?? Promise.resolve({ restored: [], skipped: [], incomplete: true }),
   }
   ctx.provide('workspaceChanges', service)
   let runner: Promise<GitRunner | null> | undefined

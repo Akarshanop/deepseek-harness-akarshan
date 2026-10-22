@@ -18,6 +18,10 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./llm": {
+      "types": "./lib/types/llm.d.ts",
+      "default": "./lib/llm.js"
+    },
     "./src/*": "./src/*",
     "./package.json": "./package.json",
     "./locale/*.json": "./locale/*.json",
@@ -28,6 +32,7 @@
     "locale/*.json",
     "lib/index.js",
     "cordis.patch.yml",
+    "lib/llm.js",
     "lib/types/**/*.d.ts"
   ],
   "license": "MIT",
@@ -42,7 +47,8 @@
     "@deepseek-ai/dsh-session": "workspace:*",
     "@deepseek-ai/dsh-subagent": "workspace:*",
     "@deepseek-ai/dsh-subprocess": "workspace:*",
-    "@deepseek-ai/dsh-timeout": "workspace:*"
+    "@deepseek-ai/dsh-timeout": "workspace:*",
+    "@deepseek-ai/dsh-client-connection": "workspace:*"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.263",
@@ -70,7 +76,13 @@
     "@deepseek-ai/dsh-timeout": "workspace:*",
     "@deepseek-ai/dsh-tool-jobs": "workspace:*",
     "@deepseek-ai/dsh-tools": "workspace:*",
-    "@deepseek-ai/dsh-agent-loop-testkit": "workspace:*"
+    "@deepseek-ai/dsh-agent-loop-testkit": "workspace:*",
+    "@deepseek-ai/dsh-client-connection": "workspace:*"
   },
-  "icon": "./icon.svg"
+  "icon": "./icon.svg",
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-client-connection": {
+      "optional": true
+    }
+  }
 }

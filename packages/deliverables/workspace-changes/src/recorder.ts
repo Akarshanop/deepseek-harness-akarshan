@@ -1,15 +1,18 @@
 /** Per-Session turn recorder: snapshots, captures around file-tool edits, the turn-end diff, and the records kept until disposal. */
-import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join, relative, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { captureFile, sameCapture, type Capture } from './capture.ts'
 import { compareText } from './compare.ts'
 import {
-  blobText, diffTrees, gitlinkPaths, ignoredPaths, locateGitWorkspace, snapshotTree, treeBlob, type GitRunner, type GitWorkspace,
+  blobText, checkoutPaths, diffTrees, gitlinkPaths, ignoredPaths, locateGitWorkspace, snapshotTree, treeBlob, treeEntry,
+  type GitRunner, type GitWorkspace,
 } from './git.ts'
 import { canonicalPath, compareDisplay, displayPathOf, durablePathOf, isInside, isTemporaryPath, temporaryRoots, toPosix } from './paths.ts'
-import type { WorkspaceChangedFile, WorkspaceChangesSummary, WorkspaceFileDiff } from './types.ts'
+import type {
+  WorkspaceChangedFile, WorkspaceChangesSummary, WorkspaceFileDiff, WorkspaceRewindPlan, WorkspaceRewindResult,
+} from './types.ts'
 
 /** Facts shared by every recorder of one plugin instance. */
 export interface RecorderEnvironment {
@@ -60,10 +63,20 @@ type FileSources =
   | { refusal: 'binary' | 'oversized' }
   | { refusal?: undefined; before: ContentSource; after: ContentSource }
 
+/** The turn-start content a rewind writes back to one changed path. */
+interface Restore {
+  absolute: string
+  display: string
+  /** A snapshot path or captured copy, `absent` to remove the file, or `oversized` when the content was not kept. */
+  before: ContentSource | { kind: 'oversized' }
+}
+
 /** A served summary with the content sources of its listed files, index-aligned with `summary.files`. */
 interface TurnRecord {
   summary: WorkspaceChangesSummary
   sources: FileSources[]
+  /** Turn-start content of every changed path, including files beyond `maxFiles` and the old path of a rename. */
+  restores: Restore[]
 }
 
 /** Everything one turn accumulates; a new turn gets a new object so queued work for an older turn keeps its own. */
@@ -87,8 +100,8 @@ function freshState(turn: number): TurnState {
   return { turn, baseline: null, captures: new Map(), lastToolResultSeq: -1, attemptedAfterSeq: -1, recordedAfterSeq: -1 }
 }
 
-/** A listed file with the sources of its two sides. */
-interface Listed { file: WorkspaceChangedFile; sources: FileSources }
+/** A listed file with the sources of its two sides and the turn-start content of each path it covers. */
+interface Listed { file: WorkspaceChangedFile; sources: FileSources; restores: Restore[] }
 
 /** A snapshot side larger than the byte cap. */
 const OVERSIZED = Symbol('oversized')
@@ -116,6 +129,12 @@ export class TurnRecorder {
   private scratch: Promise<string> | undefined
   /** Records by the sequence of the event that announced them. */
   private readonly records = new Map<number, TurnRecord>()
+  /** The first turn this recorder observed; earlier turns ran before this Host process recorded the Session. */
+  private firstTurn: number | undefined
+  /** Turns whose snapshot or record failed, so their changes are not known. */
+  private readonly unrecorded = new Set<number>()
+  /** Turns without a snapshot, whose shell-command edits are not known. */
+  private readonly withoutSnapshot = new Set<number>()
   private readonly lifetime = new AbortController()
 
   constructor(
@@ -131,16 +150,21 @@ export class TurnRecorder {
   start(turn: number): void {
     const state = freshState(turn)
     this.state = state
+    this.firstTurn ??= turn
     void this.enqueue(async (signal) => {
       try {
         this.paths ??= { cwd: await realpath(this.cwd), home: await canonicalPath(homedir()), temporaryRoots: await temporaryRoots() }
         const repository = await this.locate(this.paths.cwd, signal)
-        if (repository === null) return
+        if (repository === null) {
+          this.withoutSnapshot.add(turn)
+          return
+        }
         const tree = await snapshotTree(repository.git, repository.workspace, signal)
         state.baseline = { ...repository, tree }
       } catch (error: unknown) {
         // A repository whose snapshot failed must not be summarized as if it had none.
         state.baseline = 'failed'
+        this.unrecorded.add(turn)
         throw error
       }
     })
@@ -181,7 +205,7 @@ export class TurnRecorder {
   stopping(turn: number): Promise<void> {
     const state = this.state
     if (turn !== state.turn) return Promise.resolve()
-    return this.enqueue(signal => this.record(state, signal))
+    return this.enqueue(signal => this.recordTracked(state, signal))
   }
 
   /**
@@ -191,7 +215,7 @@ export class TurnRecorder {
   end(turn: number): void {
     const state = this.state
     if (turn !== state.turn || state.attemptedAfterSeq >= state.lastToolResultSeq) return
-    void this.enqueue(signal => this.record(state, signal))
+    void this.enqueue(signal => this.recordTracked(state, signal))
   }
 
   /** Resolves once every queued snapshot, capture, and record has settled. */
@@ -234,6 +258,35 @@ export class TurnRecorder {
       if (this.lifetime.signal.aborted) return undefined
       throw error
     }
+  }
+
+  /**
+   * List what {@link rewind} would put back, without touching the workspace.
+   * @param turn - the first turn whose changes would be undone.
+   * @returns the files, the files whose content was not kept, and the coverage gaps.
+   */
+  rewindPlan(turn: number): WorkspaceRewindPlan {
+    const restores = this.restoresFrom(turn)
+    return {
+      files: restores.filter(entry => entry.before.kind !== 'oversized').map(entry => entry.display),
+      oversized: restores.filter(entry => entry.before.kind === 'oversized').map(entry => entry.display),
+      incomplete: this.incomplete(turn),
+      shellUntracked: [...this.withoutSnapshot].some(recorded => recorded >= turn),
+    }
+  }
+
+  /**
+   * Put every path the recorded turns from `turn` onward changed back to its
+   * content at the start of the earliest of those turns that changed it.
+   * Runs after every queued snapshot and record has settled.
+   * @param turn - the first turn whose changes are undone.
+   * @param signal - cancels the remaining git work.
+   * @returns what was put back and what was left.
+   */
+  rewind(turn: number, signal: AbortSignal): Promise<WorkspaceRewindResult> {
+    const run = this.chain.then(() => this.restore(turn, AbortSignal.any([signal, this.lifetime.signal])))
+    this.chain = run.then(() => undefined, () => undefined)
+    return run
   }
 
   /**
@@ -282,6 +335,107 @@ export class TurnRecorder {
     return this.repository
   }
 
+  /** Whether a turn at or after `turn` ran unrecorded. */
+  private incomplete(turn: number): boolean {
+    return this.firstTurn === undefined || turn < this.firstTurn || [...this.unrecorded].some(failed => failed >= turn)
+  }
+
+  /** The turn-start content of every path the turns from `turn` onward changed, earliest turn first, in display order. */
+  private restoresFrom(turn: number): Restore[] {
+    // Records are kept in announcement order, so a later record of the same turn replaces an earlier one.
+    const latest = new Map<number, TurnRecord>()
+    for (const record of this.records.values()) {
+      if (record.summary.turn >= turn) latest.set(record.summary.turn, record)
+    }
+    const byPath = new Map<string, Restore>()
+    for (const record of [...latest.values()].sort((a, b) => a.summary.turn - b.summary.turn)) {
+      for (const entry of record.restores) {
+        if (!byPath.has(entry.absolute)) byPath.set(entry.absolute, entry)
+      }
+    }
+    return [...byPath.values()].sort(compareDisplay)
+  }
+
+  private async restore(turn: number, signal: AbortSignal): Promise<WorkspaceRewindResult> {
+    const restored: string[] = []
+    const skipped: WorkspaceRewindResult['skipped'] = []
+    const checkouts = new Map<string, { repository: Repository; tree: string; entries: Array<{ entry: Restore; path: string }> }>()
+    for (const entry of this.restoresFrom(turn)) {
+      const { before } = entry
+      if (before.kind === 'oversized') {
+        skipped.push({ display: entry.display, reason: 'oversized' })
+        continue
+      }
+      if (before.kind === 'snapshot') {
+        const key = `${before.repository.workspace.root}\0${before.tree}`
+        const group = checkouts.get(key) ?? { repository: before.repository, tree: before.tree, entries: [] }
+        group.entries.push({ entry, path: before.path })
+        checkouts.set(key, group)
+        continue
+      }
+      try {
+        if (before.kind === 'absent') {
+          await rm(entry.absolute, { force: true })
+        } else {
+          await mkdir(dirname(entry.absolute), { recursive: true })
+          // writeFile keeps an existing file's mode, which copying the captured file would replace.
+          await writeFile(entry.absolute, await readFile(before.file))
+        }
+        restored.push(entry.display)
+      } catch (error: unknown) {
+        this.env.warn(`workspace-changes: rewind of ${entry.absolute} failed: ${String(error)}`)
+        skipped.push({ display: entry.display, reason: 'failed' })
+      }
+    }
+    for (const { repository: { git, workspace }, tree, entries } of checkouts.values()) {
+      const written: Restore[] = []
+      const paths: string[] = []
+      for (const { entry, path } of entries) {
+        try {
+          const found = await treeEntry(git, workspace, tree, path, signal)
+          if (found === null) {
+            await rm(entry.absolute, { force: true })
+            restored.push(entry.display)
+          } else if (found.type === 'blob') {
+            written.push(entry)
+            paths.push(path)
+          } else {
+            skipped.push({ display: entry.display, reason: 'submodule' })
+          }
+        } catch (error: unknown) {
+          signal.throwIfAborted()
+          this.env.warn(`workspace-changes: rewind of ${entry.absolute} failed: ${String(error)}`)
+          skipped.push({ display: entry.display, reason: 'failed' })
+        }
+      }
+      try {
+        await checkoutPaths(git, workspace, tree, paths, signal)
+        restored.push(...written.map(entry => entry.display))
+      } catch (error: unknown) {
+        signal.throwIfAborted()
+        this.env.warn(`workspace-changes: rewind checkout failed: ${String(error)}`)
+        skipped.push(...written.map(entry => ({ display: entry.display, reason: 'failed' as const })))
+      }
+    }
+    const byDisplay = (a: string, b: string): number => compareDisplay({ display: a }, { display: b })
+    return {
+      restored: restored.sort(byDisplay),
+      skipped: skipped.sort((a, b) => compareDisplay(a, b)),
+      incomplete: this.incomplete(turn),
+    }
+  }
+
+  /** Record a turn, tracking whether its changes are known for a later rewind. */
+  private async recordTracked(state: TurnState, signal: AbortSignal): Promise<void> {
+    try {
+      await this.record(state, signal)
+      this.unrecorded.delete(state.turn)
+    } catch (error: unknown) {
+      this.unrecorded.add(state.turn)
+      throw error
+    }
+  }
+
   /** One side's text, null for an absent file, or {@link OVERSIZED} for a snapshot side beyond the byte cap. */
   private async readSide(source: ContentSource, signal: AbortSignal): Promise<string | null | typeof OVERSIZED> {
     switch (source.kind) {
@@ -310,6 +464,14 @@ export class TurnRecorder {
       const after = await snapshotTree(baseline.git, baseline.workspace, signal)
       snapshot = { before: baseline.tree, after }
       const repository: Repository = { git: baseline.git, workspace: baseline.workspace }
+      const restoreOf = (path: string): Restore => {
+        const absolute = resolve(root, path)
+        return {
+          absolute,
+          display: displayPathOf(absolute, paths.cwd, root, paths.home),
+          before: { kind: 'snapshot', repository, tree: baseline.tree, path },
+        }
+      }
       for (const entry of await diffTrees(baseline.git, baseline.workspace, baseline.tree, after, signal)) {
         const absolute = resolve(root, entry.path)
         listed.set(absolute, {
@@ -318,6 +480,8 @@ export class TurnRecorder {
             before: { kind: 'snapshot', repository, tree: baseline.tree, path: entry.oldPath ?? entry.path },
             after: { kind: 'snapshot', repository, tree: after, path: entry.path },
           },
+          // A rename is undone as two paths: the new one is removed and the old one written back.
+          restores: [restoreOf(entry.path), ...entry.oldPath === undefined ? [] : [restoreOf(entry.oldPath)]],
         })
       }
     }
@@ -361,6 +525,7 @@ export class TurnRecorder {
         ...snapshot === undefined ? {} : { snapshot },
       },
       sources: kept.map(entry => entry.sources),
+      restores: sorted.flatMap(entry => entry.restores),
     })
     state.recordedAfterSeq = event.seq
   }
@@ -371,7 +536,9 @@ export class TurnRecorder {
    * sides carry the counts of their line comparison.
    */
   private async compared(paths: Paths, root: string, absolute: string, before: Capture, after: Capture): Promise<Listed> {
-    const list = (counts: Counts, sources: FileSources): Listed => ({ file: changedFile(paths, root, absolute, counts), sources })
+    const file = (counts: Counts): WorkspaceChangedFile => changedFile(paths, root, absolute, counts)
+    const restores: Restore[] = [{ absolute, display: displayPathOf(absolute, paths.cwd, root, paths.home), before }]
+    const list = (counts: Counts, sources: FileSources): Listed => ({ file: file(counts), sources, restores })
     if (before.kind === 'oversized' || after.kind === 'oversized') {
       return list({ added: 0, deleted: 0, binary: false, oversized: true }, { refusal: 'oversized' })
     }

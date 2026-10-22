@@ -112,6 +112,13 @@ export interface PiAiAdapterOptions {
    * conversion because its stored replay state is unusable by this build.
    */
   onReplayDegrade?: (detail: { provider: string; model: string; reason: string }) => void
+  /**
+   * The model ids one route's credential can use, when the credential limits
+   * them (a Sign in with ChatGPT grant serves only the plan's models). The
+   * route's model list is narrowed to them; resolution is not, so a session
+   * already using another model still resolves it and fails at the provider.
+   */
+  usableModels?: (provider: string, profile: ResolvedPiAiProviderProfile) => Promise<ReadonlySet<string> | undefined>
 }
 
 /** The two auth injectables a pi-ai collection is built with. */
@@ -285,10 +292,15 @@ export class PiAiAdapter extends LlmAdapter {
   }
 
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
-    return Promise.resolve().then(() => {
+    return Promise.resolve().then(async () => {
       const snapshot = this.current()
-      this.profileOf(snapshot, provider)
-      return snapshot.models.getModels(provider).map(model => ({
+      const profile = this.profileOf(snapshot, provider)
+      const models = snapshot.models.getModels(provider)
+      const usable = await this.config.usableModels?.(provider, profile)
+      const narrowed = usable === undefined ? models : models.filter(model => usable.has(model.id))
+      // A credential whose models this catalog does not know keeps the whole
+      // list rather than leaving the route with nothing to pick.
+      return (narrowed.length > 0 ? narrowed : models).map(model => ({
         provider,
         id: model.id,
         name: model.name,

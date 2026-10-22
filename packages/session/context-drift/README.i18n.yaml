@@ -1,0 +1,61 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/session/context-drift/README.md
+/:
+  en: 1b4bc071541c42de
+  zh: d40aa0f52252b64f
+/deepseek-ai-dsh-context-drift:
+  en: e65320db4a8d6aad
+  zh: 4cb3d4587a2dfb41
+/deepseek-ai-dsh-context-drift/summary:
+  en: e5b08194ab51af2e
+  zh: 6898eebb5a6b269f
+/deepseek-ai-dsh-context-drift/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 9f0336825ccdaacd
+/deepseek-ai-dsh-context-drift/use-this-package:
+  en: 9510ac9253aa8932
+  zh: 3cdf0df8d29f89df
+/deepseek-ai-dsh-context-drift/use-this-package/composition:
+  en: 1ff253c3946b4ebe
+  zh: 103f66630a01e5f8
+/deepseek-ai-dsh-context-drift/use-this-package/the-score:
+  en: 0fda3c5710096413
+  zh: 860db484f59ade88
+/deepseek-ai-dsh-context-drift/use-this-package/levels-and-recommendations:
+  en: d55676de7a9fac3c
+  zh: 4aea01502831c111
+/deepseek-ai-dsh-context-drift/use-this-package/what-counts:
+  en: 73ef2f846392f2aa
+  zh: 51b96dc29db141ec
+/deepseek-ai-dsh-context-drift/use-this-package/failures-and-recovery:
+  en: 312fe1b5562bab23
+  zh: 4e6229c900b483d8
+/deepseek-ai-dsh-context-drift/understand-the-implementation:
+  en: 2b558eb06c8a52a3
+  zh: ca05c23d8be213ec
+/deepseek-ai-dsh-context-drift/understand-the-implementation/design-concept:
+  en: d8010f473a1dc7ee
+  zh: 2f2772e299336307
+/deepseek-ai-dsh-context-drift/understand-the-implementation/source-map:
+  en: 18d595a78a439f69
+  zh: 026209a6f094026f
+/deepseek-ai-dsh-context-drift/understand-the-implementation/state-version:
+  en: 72346e2b4745682a
+  zh: 088236bb620a1b9f
+/deepseek-ai-dsh-context-drift/further-exploration:
+  en: 493e08a9a51a8256
+  zh: 364e350a4e79b376
+/deepseek-ai-dsh-context-drift/model-experience:
+  en: e805171160addaf4
+  zh: 8e05a0d5f108805f
+/deepseek-ai-dsh-context-drift/model-experience/kv-cache-effect:
+  en: 47f982e326fe77fd
+  zh: ed0bb6b141079e89
+/deepseek-ai-dsh-context-drift/known-limitations-and-deferred-work:
+  en: bae832917ba939f3
+  zh: dd4fcb92c3327025
+/deepseek-ai-dsh-context-drift/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: 8ec3e73528ddb1a6

@@ -2,6 +2,7 @@
 /** Inspect the public Claude Code provider composition without invoking the product. */
 
 import { resolveConfigPath } from '@deepseek-ai/dsh-app-boot'
+import type {} from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-tools'
 import { bootProductionProfile } from '../../../../../test-support/loader-smoke/tests/fixtures/production-profile.ts'
@@ -77,6 +78,8 @@ try {
     providers,
     tools,
     jobTools,
+    claudePlanRoute: ctx.llm.listProviders().find(provider => provider.id === 'claude-plan') ?? null,
+    claudePlanModels: (await ctx.llm.listModels('claude-plan')).map(model => model.id),
     starts,
   })}\n`)
 } finally {

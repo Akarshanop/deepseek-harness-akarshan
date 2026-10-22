@@ -18,17 +18,21 @@
 
 ## 用套餐或 API 密钥使用 Claude 或 Codex
 
-Claude Pro/Max 或 ChatGPT 套餐授权的是 Anthropic 与 OpenAI 自己的产品，而不是第三方模型端点，因此套餐不会作为模型提供商出现在这里。按你拥有的凭据选择：
+Claude Pro/Max 套餐授权的是 Anthropic 自己的产品，而不是第三方模型端点，因此只能通过 Claude Code 在本应用中使用。ChatGPT Plus 或 Pro 套餐可以通过 OpenAI 的 Sign in with ChatGPT 直接为这里的 OpenAI 模型提供额度。按你拥有的凭据选择：
 
 | 你拥有 | 使用 | 用量计入 |
 |---|---|---|
 | Claude Console 或 OpenAI Platform 的 API 密钥 | **添加模型提供商**，再选 `anthropic` 或 `openai`；模型会出现在模型选择器中 | API 密钥所属账号 |
-| Claude Pro/Max 套餐 | **插件 → 官方 → Claude Code subagent**；先运行 `claude` 并使用 `/login` 登录一次 | 你的套餐额度，以 Anthropic 当前条款为准 |
-| ChatGPT Plus/Pro 套餐 | **插件 → 官方 → Codex subagent**；先用 `codex login` 登录一次 | 你的套餐额度，以 OpenAI 当前条款为准 |
+| Claude Pro/Max 套餐 | **插件 → 实验性插件 → 更多 → Claude Code subagent**，然后在模型选择器中选择 **Claude (your Claude plan)**；先在 Claude Code 中用 `claude auth login --claudeai` 登录一次。**设置 → 模型 → 使用你的 Claude 订阅** 会显示 Claude Code 是否已用你的套餐登录 | 你的套餐额度，以 Anthropic 当前条款为准 |
+| ChatGPT Plus/Pro 套餐 | **设置 → 模型 → 使用你的 ChatGPT 订阅 → 使用 ChatGPT 继续**（在 **添加模型提供商** 中选择 `openai` 时也会出现）；之后套餐包含的模型会出现在模型选择器的 `openai` 下 | 你的套餐额度，与你在 ChatGPT 和 Codex 中的用量共享 |
 
-这两个子代理在会话工作区中以无人值守方式运行厂商自己的产品。你选择的模型把它们当作工具（`subagent_claude_code` 或 `subagent_codex`）调用并收到最终答案；它们因为自带工具循环，所以不是模型选择器中的条目。它们不会向你请求审批：由提供方的 `permissionMode` 决定它们可以做什么。登录在厂商产品中完成，本应用不会读取或存储这些凭据。产品未登录或拒绝其凭据时，结果会指明 `authentication` 失败及需要运行的命令。要限制单次运行时长，请在提供方上设置 `timeoutMs`。
+**使用你的 ChatGPT 订阅** 会在新的浏览器标签页中打开 OpenAI 登录页，你在其中登录 ChatGPT 并允许 DeepSeek Harness 使用你的套餐。浏览器必须与 dsh 运行在同一台机器上，因为 OpenAI 会回调 `127.0.0.1`。登录后，卡片会在缺少时添加 `openai` 提供商，显示账号与套餐包含的模型，链接到 [ChatGPT 用量设置](https://chatgpt.com/settings/usage)，并提供 **退出登录**（同时在 OpenAI 结束会话）。之后 `openai` 模型使用 harness 自己的工具运行，用量计入你的套餐。`openai` 提供商上保存的 API 密钥优先于套餐；移除密钥即可使用套餐。若要从 ChatGPT 一侧断开，请打开 ChatGPT 设置 → 安全与登录 → Sign in with ChatGPT。
 
-为某条路由存储的 API 密钥，是本应用发送给模型端点的唯一凭据。把 Claude 订阅令牌或 ChatGPT 访问令牌放进密钥字段会以 `INVALID_CREDENTIAL` 被拒绝。
+Anthropic 没有提供让其他应用直接使用 Claude 套餐的登录方式：其条款禁止第三方应用提供 Claude.ai 登录或通过 Pro、Max 凭据转发请求，因此 Claude 套餐只能通过由你登录的 Claude Code 在本应用中使用。Claude Max 套餐还包含每月 API 额度，可用于关联的 Claude Console 组织中的 API 密钥；把该密钥配置在 `anthropic` 提供商上后，Claude 模型将使用 harness 自己的工具运行，并由该额度支付。
+
+**Claude (your Claude plan)** 在 Claude Code 中运行每个聊天轮次，使用 Claude Code 自己的工具在会话工作区中工作，并在各轮次之间续接同一个 Claude 会话；Claude 的权限请求会出现在审批面板中。harness 自己的工具对它不可用。两个 bundle 还都会添加一个委派工具（`subagent_claude_code` 或 `subagent_codex`），任何模型都可以调用它，把一个任务以无人值守方式交给厂商产品；这些委派不会向你请求审批，由提供方的 `permissionMode` 决定它们可以做什么。登录在厂商产品中完成，本应用不会读取或存储这些凭据。产品未登录或拒绝其凭据时，结果会指明 `authentication` 失败及需要运行的命令。要限制单次运行时长，请在提供方上设置 `timeoutMs`。
+
+除 `openai` 提供商上的 Sign in with ChatGPT 授权外，为某条路由存储的 API 密钥是本应用发送给模型端点的唯一凭据。把 Claude 订阅令牌或 Codex 的 ChatGPT 访问令牌粘贴进密钥字段会以 `INVALID_CREDENTIAL` 被拒绝。
 
 ## 添加自定义模型 API
 

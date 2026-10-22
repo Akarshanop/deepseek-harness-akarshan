@@ -8,7 +8,7 @@
 .list { display: flex; flex-direction: column; gap: 6px; padding-left: 16px; }
 .code { padding: 0 4px; border-radius: var(--dsw-radius-sm); background: var(--dsw-alias-interactive-bg-hover); font-family: var(--ds-font-family-code); font-size: 12px; }
 .status { display: flex; gap: 12px; align-items: center; margin: 0; color: var(--dsw-alias-label-secondary); }
-/* Keep this width in step with `.split` in ReviewTab.module.css, which stacks the panel above the comparison. */
-@container (max-width: 900px) {
-  .panel { flex: 0 1 auto; order: -1; max-height: 40%; border-bottom: 0.5px solid var(--dsw-alias-border-l3); border-left: 0; }
+/* Keep this width in step with `.panels` in ReviewTab.module.css, which moves the panels above the comparison. */
+@container (max-width: 1100px) {
+  .panel { flex: 1 1 0; }
 }

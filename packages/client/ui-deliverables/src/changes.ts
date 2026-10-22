@@ -1,6 +1,8 @@
 /** Validate workspace-change records that cross the Host routes and address their summary, comparison, and native-open actions. */
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { WorkspaceChangedFile, WorkspaceChangesSummary, WorkspaceDiffHunk, WorkspaceFileDiff } from '@deepseek-ai/dsh-workspace-changes/types'
+import type {
+  WorkspaceChangedFile, WorkspaceChangesSummary, WorkspaceDiffHunk, WorkspaceFileDiff, WorkspaceRewindPlan, WorkspaceRewindResult,
+} from '@deepseek-ai/dsh-workspace-changes/types'
 
 /** Authenticated GET route serving one announced change summary while its Session lives. */
 export const CHANGED_FILES_PATH = '/api/changes.summary'
@@ -18,6 +20,18 @@ export const CHANGES_OPEN_PATH = '/api/changes.open'
 export const CHANGES_EXPLAIN_PATH = '/api/changes.explain'
 
 /**
+ * Authenticated GET route serving the model judgment of one listed file's change against the project's codebase
+ * docs. A request waits for the judgment when it is still being written, so a response is the final answer.
+ */
+export const CHANGES_JUDGE_PATH = '/api/changes.judge'
+
+/**
+ * Authenticated route rewinding a Session to the start of one turn: GET serves what the rewind would
+ * put back and where its conversation would be cut, POST puts the files back.
+ */
+export const CHANGES_REWIND_PATH = '/api/changes.rewind'
+
+/**
  * Browser-relative form of {@link CHANGED_FILES_PATH}; see
  * .agents/notes/implemented/architecture/2026-09-14-web-document-relative-app-routes.md.
  */
@@ -31,6 +45,23 @@ export const CHANGES_OPEN_ROUTE = CHANGES_OPEN_PATH.slice(1)
 
 /** Browser-relative form of {@link CHANGES_EXPLAIN_PATH}. */
 export const CHANGES_EXPLAIN_ROUTE = CHANGES_EXPLAIN_PATH.slice(1)
+
+/** Browser-relative form of {@link CHANGES_JUDGE_PATH}. */
+export const CHANGES_JUDGE_ROUTE = CHANGES_JUDGE_PATH.slice(1)
+
+/** Browser-relative form of {@link CHANGES_REWIND_PATH}. */
+export const CHANGES_REWIND_ROUTE = CHANGES_REWIND_PATH.slice(1)
+
+/** What rewinding to the start of one turn would do, as the rewind route's GET serves it. */
+export interface ChangesRewindPreview extends WorkspaceRewindPlan {
+  /** The last event seq the rewound conversation keeps, or null when the turn has no earlier cut point. */
+  atSeq: number | null
+  /** Whether a turn of the Session is running; the files are not put back while it runs. */
+  running: boolean
+}
+
+/** What the rewind route's POST put back. */
+export type ChangesRewindResult = WorkspaceRewindResult
 
 /** Resource-address prefix of a turn's review tab in the right Sidebar. */
 export const CHANGES_REVIEW_ADDRESS = 'dsh-resource://changes-review/session/'
@@ -47,6 +78,59 @@ export interface ChangesExplanation {
   purpose: string
   /** One entry per logical change, in the order the model listed them. */
   changes: string[]
+}
+
+/** The judge's overall finding: correct, correct with concerns, or likely wrong. */
+export type JudgeVerdict = 'pass' | 'concerns' | 'fail'
+
+/** How much one issue matters. */
+export type JudgeSeverity = 'high' | 'medium' | 'low'
+
+/** One reviewed aspect's outcome; `na` when the aspect does not apply or cannot be assessed. */
+export type JudgeCheckStatus = 'pass' | 'warn' | 'fail' | 'na'
+
+/**
+ * The aspects every judgment reviews, in display order: fit with the turn's request, consistency with the
+ * codebase docs, logical correctness, error handling and edge cases, security, and test coverage.
+ */
+export const JUDGE_ASPECTS = ['request', 'docs', 'correctness', 'errors', 'security', 'tests'] as const
+
+/** One reviewed aspect. */
+export type JudgeAspect = typeof JUDGE_ASPECTS[number]
+
+/** One problem the judge found in the change. */
+export interface JudgeIssue {
+  severity: JudgeSeverity
+  /** A short name of the problem. */
+  title: string
+  /** What is wrong, why, and how to fix it; empty when the title says it all. */
+  detail: string
+  /** Line in the file as it now stands, when the issue has one. */
+  line?: number
+}
+
+/** One aspect's outcome with its reason. */
+export interface JudgeCheck {
+  aspect: JudgeAspect
+  status: JudgeCheckStatus
+  note: string
+}
+
+/** What a model judged about one changed file, having read the project's codebase docs and the turn's request. */
+export interface ChangesJudgment {
+  verdict: JudgeVerdict
+  /** How sure the judge is of the verdict, 0 to 100. */
+  confidence: number
+  /** One or two sentences on the change's state. */
+  summary: string
+  /** Problems ordered by severity. */
+  issues: JudgeIssue[]
+  /** One entry per reviewed aspect the answer covered, in {@link JUDGE_ASPECTS} order. */
+  checks: JudgeCheck[]
+  /** Optional improvements that are not problems. */
+  suggestions: string[]
+  /** Which evidence the judge had: the file's codebase doc and the turn's request. */
+  basis: { docs: boolean; request: boolean }
 }
 
 /** Coordinates of one turn's review: the viewed Session, the announcing event, and the turn it summarized. */
@@ -121,6 +205,77 @@ export function isChangesExplanation(value: unknown): value is ChangesExplanatio
   return typeof purpose === 'string' && Array.isArray(changes) && changes.every(change => typeof change === 'string')
 }
 
+const VERDICTS: readonly string[] = ['pass', 'concerns', 'fail']
+const SEVERITIES: readonly string[] = ['high', 'medium', 'low']
+const STATUSES: readonly string[] = ['pass', 'warn', 'fail', 'na']
+
+function isJudgeIssue(value: unknown): value is JudgeIssue {
+  if (!isRecord(value)) return false
+  const { severity, title, detail, line } = value
+  return SEVERITIES.includes(severity as string) && typeof title === 'string' && typeof detail === 'string'
+    && (line === undefined || (Number.isSafeInteger(line) && (line as number) >= 1))
+}
+
+function isJudgeCheck(value: unknown): value is JudgeCheck {
+  if (!isRecord(value)) return false
+  const { aspect, status, note } = value
+  return (JUDGE_ASPECTS as readonly string[]).includes(aspect as string) && STATUSES.includes(status as string) && typeof note === 'string'
+}
+
+/**
+ * Validate a judgment read from the judgment route.
+ * @param value - decoded JSON.
+ * @returns whether the value carries a verdict, a confidence from 0 to 100, a summary, issues, checks, suggestions, and its basis.
+ */
+export function isChangesJudgment(value: unknown): value is ChangesJudgment {
+  if (!isRecord(value)) return false
+  const { verdict, confidence, summary, issues, checks, suggestions, basis } = value
+  return VERDICTS.includes(verdict as string)
+    && Number.isSafeInteger(confidence) && (confidence as number) >= 0 && (confidence as number) <= 100
+    && typeof summary === 'string' && Array.isArray(issues) && issues.every(isJudgeIssue)
+    && Array.isArray(checks) && checks.every(isJudgeCheck) && isStrings(suggestions)
+    && isRecord(basis) && typeof basis.docs === 'boolean' && typeof basis.request === 'boolean'
+}
+
+function isStrings(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every(item => typeof item === 'string')
+}
+
+/**
+ * Validate a rewind preview read from the rewind route.
+ * @param value - decoded JSON.
+ * @returns whether the value carries the cut point, the running flag, and the plan.
+ */
+export function isChangesRewindPreview(value: unknown): value is ChangesRewindPreview {
+  if (!isRecord(value)) return false
+  const { atSeq, running, files, oversized, incomplete, shellUntracked } = value
+  return (atSeq === null || (Number.isSafeInteger(atSeq) && (atSeq as number) >= 0)) && typeof running === 'boolean'
+    && isStrings(files) && isStrings(oversized) && typeof incomplete === 'boolean' && typeof shellUntracked === 'boolean'
+}
+
+/**
+ * Validate a rewind result read from the rewind route.
+ * @param value - decoded JSON.
+ * @returns whether the value lists the restored and skipped files.
+ */
+export function isChangesRewindResult(value: unknown): value is ChangesRewindResult {
+  if (!isRecord(value)) return false
+  const { restored, skipped, incomplete } = value
+  return isStrings(restored) && typeof incomplete === 'boolean' && Array.isArray(skipped)
+    && skipped.every(item => isRecord(item) && typeof item.display === 'string'
+      && (item.reason === 'oversized' || item.reason === 'submodule' || item.reason === 'failed'))
+}
+
+/**
+ * Build authenticated coordinates for rewinding one Session to the start of one turn.
+ * @param sessionId - the Session to rewind.
+ * @param turn - the first turn whose changes are undone.
+ * @returns document-relative rewind route.
+ */
+export function changesRewindUrl(sessionId: SessionId, turn: number): string {
+  return `${CHANGES_REWIND_ROUTE}?${new URLSearchParams({ sessionId, turn: String(turn) })}`
+}
+
 /**
  * Validate the `workspace/changes` event data read from a Session log.
  * @param value - decoded durable event data.
@@ -160,6 +315,17 @@ export function changesDiffUrl(sessionId: SessionId, seq: number, index: number)
  */
 export function changesExplainUrl(sessionId: SessionId, seq: number, index: number): string {
   return `${CHANGES_EXPLAIN_ROUTE}?${new URLSearchParams({ sessionId, seq: String(seq), index: String(index) })}`
+}
+
+/**
+ * Build authenticated coordinates for one listed file's judgment.
+ * @param sessionId - owning Session.
+ * @param seq - workspace/changes event sequence.
+ * @param index - original index in the summary's files array.
+ * @returns document-relative judgment route.
+ */
+export function changesJudgeUrl(sessionId: SessionId, seq: number, index: number): string {
+  return `${CHANGES_JUDGE_ROUTE}?${new URLSearchParams({ sessionId, seq: String(seq), index: String(index) })}`
 }
 
 /**

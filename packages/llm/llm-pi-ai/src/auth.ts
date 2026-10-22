@@ -19,6 +19,7 @@ import {
 import type { CredentialKey, CredentialProvider, CredentialRecord } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import { LlmError } from '@deepseek-ai/dsh-llm'
+import type { ChatGptRegistration, ChatGptRegistrationStore } from './chatgpt.ts'
 import {
   SUBSCRIPTION_OAUTH_WITHHELD, ignoredSubscriptionMessage, isAnthropicSubscriptionToken, isSubscriptionCredential,
 } from './subscription.ts'
@@ -38,6 +39,36 @@ export const RECORD_SCOPE = 'llm-pi-ai'
  */
 export function recordKeyFor(providerId: string): CredentialKey {
   return credentialKey(RECORD_SCOPE, providerId)
+}
+
+/**
+ * Record id of this host's Sign in with ChatGPT registration. It names no
+ * catalog provider, so the pi-ai store never reports it as a credential.
+ */
+export const CHATGPT_REGISTRATION_ID = 'openai-chatgpt-registration'
+
+/**
+ * The retained Sign in with ChatGPT registration of this host, kept as a grant
+ * record beside the tokens so it shares their local, owner-only storage. It
+ * survives sign-out, because a later sign-in must present the same host id and
+ * reuse the issued client id.
+ * @param ctx - the plugin context carrying the optional `ctx.credentials`.
+ * @returns the registration store.
+ */
+export function chatGptRegistrationStoreFrom(ctx: Context): ChatGptRegistrationStore {
+  const key = credentialKey(RECORD_SCOPE, CHATGPT_REGISTRATION_ID)
+  return {
+    async read() {
+      const record = await ctx.get('credentials')?.readRecord(key)
+      if (record?.kind !== 'grant') return undefined
+      const payload = record.payload as Partial<ChatGptRegistration> | null
+      if (payload === null || typeof payload !== 'object' || typeof payload.hostId !== 'string') return undefined
+      return payload as ChatGptRegistration
+    },
+    async write(registration) {
+      await writableStore(ctx).modifyRecord(key, () => Promise.resolve({ kind: 'grant', payload: jsonImage(registration) }))
+    },
+  }
 }
 
 /**
@@ -169,6 +200,7 @@ export function credentialStoreFrom(ctx: Context): CredentialStore {
         if (credentialKeyScope(entry.key) !== RECORD_SCOPE) continue
         const providerId = credentialKeyId(entry.key)
         if (entry.kind === 'grant' && SUBSCRIPTION_OAUTH_WITHHELD.has(providerId)) continue
+        if (providerId === CHATGPT_REGISTRATION_ID) continue
         mine.push({ providerId, type: entry.kind === 'api-key' ? 'api_key' : 'oauth' })
       }
       return mine

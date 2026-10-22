@@ -1,5 +1,5 @@
 ---
-description: "Changed files, deliveries, and clickable file references for the Web GUI: the changed-files card and delivery cards a finished turn ends with, the review tab that compares each changed file beside a model-written explanation of it, and inline-code links in the closing prose; for users and maintainers of the deliverables experience."
+description: "Changed files, deliveries, and clickable file references for the Web GUI: the changed-files card and delivery cards a finished turn ends with, the review tab that compares each changed file beside a model judgment and a model-written explanation of it, the codebase docs that judgment reads, and inline-code links in the closing prose; for users and maintainers of the deliverables experience."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-This package renders the changed-files card a finished turn ends with — the files the turn changed, with the Host's line counts, each opening the turn's review tab on that file beside a model-written explanation of it — plus cards for explicitly delivered files, and links matching inline-code references in the closing prose so a mentioned file opens in the right Sidebar. Paths come from the recorded summary, successful mutations, and explicit deliveries, never from the prose. Only the shipped Web patch loads this package; removing its cordis.yml entry removes the guidance, cards, explanations, and prose links together.
+This package renders the changed-files card a finished turn ends with — each file opening the turn's review tab beside a model judgment of the change against the project's generated codebase docs and an explanation of the file — plus cards for explicitly delivered files, and links matching inline-code references in the closing prose. Paths come from the recorded summary, successful mutations, and explicit deliveries, never from the prose. Only the shipped Web patch loads this package; removing its cordis.yml entry removes the guidance, cards, explanations, judgments, codebase docs, and prose links together.
 
 ## Table of Contents
 
@@ -54,7 +54,7 @@ Without wrapping, the two columns synchronize vertical scrolling and horizontal 
 
 ### File explanations
 
-The review tab draws a model-written explanation of the selected file beside its comparison: a sentence or two on what the file is for in the project, and a short list of what the turn changed in it. A tab wider than 900 pixels shows it as a column to the right of the comparison; a narrower tab stacks it above. The sparkle button in the tab header hides and shows it, per tab, and a new tab shows it. Names in backticks render as code, and nothing in the text is read as markup. While the Host is still writing it the panel shows a shimmering placeholder; a failed request shows a Retry button and keeps the comparison. A binary or oversized file, a file with no changed lines, a turn the Host no longer serves, or a Host with `explain.enabled` set to `false` shows no panel and no button.
+The review tab draws a model-written explanation of the selected file beside its comparison: a sentence or two on what the file is for in the project, and a short list of what the turn changed in it. A tab wider than 1,100 pixels shows it as a column to the right of the comparison, after the [judgment](#change-judgments) column; a narrower tab moves both above the comparison, side by side. The sparkle button in the tab header hides and shows it, per tab, and a new tab shows it. Names in backticks render as code, and nothing in the text is read as markup. While the Host is still writing it the panel shows a shimmering placeholder; a failed request shows a Retry button and keeps the comparison. A binary or oversized file, a file with no changed lines, a turn the Host no longer serves, or a Host with `explain.enabled` set to `false` shows no panel and no button.
 
 The Host writes explanations without waiting for a reader. When a turn's changes are recorded it starts the first `explain.eagerFiles` files; any other file starts when its tab asks for it, and a request for a file already being written waits for that one. One request is made per distinct comparison, so a turn recorded again with the same change reuses the explanation. Explanations live as long as the Session in this Host process, like the summaries they describe, so a conversation reopened after a Host restart has none for earlier turns. Each request goes to the Session's current provider and model, or to `explain.provider` and `explain.model` when both are set, at the route's least supported reasoning effort. It carries the file's comparison and, for a file that existed before and after the turn, the first `explain.contextLines` lines of the file as it now stands. It is separate from the conversation: nothing enters the Session log or the model's history.
 
@@ -81,6 +81,51 @@ Configure it on the plugin entry; every field is optional:
 | `explain.language` | `English` | Language the explanation is written in |
 | `explain.provider`, `explain.model` | unset | Explicit route; both or neither. Without them the Session's current route answers |
 
+### Codebase docs
+
+Whenever a top-level Session opens in a project, the Host documents that project's source files with a model and writes the result into the project as a mirror tree: `codebase_docs/src/app.ts.md` documents `src/app.ts`. Each doc states the file's purpose, then one entry per function, class, method, type, constant, route, or command with its parameters, return value, side effects, errors, and the invariants callers rely on, then the file's dependencies and notes. `codebase_docs/INDEX.md` lists every documented file with a one-line summary, and `codebase_docs/.manifest.json` records the SHA-256 of the content each doc was written from. A later run documents only files whose hash changed or that have no doc, and drops deleted files from the index; after each turn the Host documents the files the turn changed again, once the judge has read the earlier docs. By default the directory carries a `.gitignore` of `*`, which keeps the docs out of git and out of the turns' change summaries.
+
+The walk skips directories whose name starts with a dot, the docs directory, and every name in `codebaseDocs.excludeDirectories`, and keeps files with a listed extension up to `codebaseDocs.maxFileBytes`, stopping at `codebaseDocs.maxFiles` files in breadth-first name order. The docs are written on `codebaseDocs.provider` and `codebaseDocs.model` when both are set, otherwise on the default model; when neither names a route, the project starts with the Session's first model request. A file the model cannot document is logged and tried again on the next run.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `codebaseDocs.enabled` | `true` | Whether projects are documented; `false` also leaves the judge without docs |
+| `codebaseDocs.directory` | `codebase_docs` | Project directory the docs are written to |
+| `codebaseDocs.extensions` | common source extensions | File extensions, with their dot, that count as source files |
+| `codebaseDocs.excludeDirectories` | `node_modules`, `dist`, `build`, `lib`, `out`, `coverage`, `target`, `vendor`, `__pycache__`, `venv`, `bower_components` | Directory names skipped wherever they appear |
+| `codebaseDocs.maxFiles` | `500` | Source files documented per project |
+| `codebaseDocs.maxFileBytes` | `200000` | Larger source files are left out |
+| `codebaseDocs.maxFileChars` | `40000` | Characters of one file a request carries; a longer file is cut with a marker |
+| `codebaseDocs.concurrency` | `4` | Model requests that run at the same time across every project |
+| `codebaseDocs.maxOutputTokens` | `4096` | Output-token cap of one request |
+| `codebaseDocs.timeoutMs` | `180000` | Milliseconds one file's request may take once it starts |
+| `codebaseDocs.language` | `English` | Language the docs are written in |
+| `codebaseDocs.ignoreInGit` | `true` | Whether the docs directory carries a `.gitignore` of `*` |
+| `codebaseDocs.provider`, `codebaseDocs.model` | unset | Explicit route; both or neither. Without them the default model answers |
+
+<a id="change-judgments"></a>
+### Change judgments
+
+The review tab draws an LLM judge's verdict on the selected file's change in a column to the left of the explanation. The judge reads the project's codebase docs first — the index, the changed file's doc as it stood before the turn, and the docs of the project files it imports through relative JavaScript, TypeScript, or Python imports — then the developer's prompt for the turn, the list of files the turn changed, the comparison, and the file as it now stands with line numbers. The panel shows the verdict (implemented properly, has concerns, or likely wrong), the judge's confidence from 0 to 100 as text and as a bar, a one-sentence summary, the issues ordered from high to low severity with their line, a check per aspect (matches the request, consistent with the codebase docs, correctness, error handling and edge cases, security, tests) with a pass, warning, fail, or not-applicable mark and a reason, and optional suggestions. When the file had no doc yet or the turn's prompt was not observed by this Host process, the panel says so. The shield button hides and shows it, per tab; loading, retry, and absence follow the explanation's rules, under `judge.enabled`.
+
+The Host starts the first `judge.eagerFiles` judgments when a turn's changes are recorded and serves each from `/api/changes.judge`. A judgment is kept per turn and comparison for the Session's life in this Host process. Each request goes to the Session's current route, or to `judge.provider` and `judge.model` when both are set, at the route's least supported reasoning effort. With the codebase docs composed out, the judge reads the code alone.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `judge.enabled` | `true` | Whether judgments are written; `false` registers no route |
+| `judge.eagerFiles` | `20` | Files per recorded turn whose judgment starts when the turn's changes are recorded |
+| `judge.concurrency` | `2` | Model requests that run at the same time |
+| `judge.maxDiffChars` | `24000` | Characters of comparison one request carries |
+| `judge.contextLines` | `400` | Lines of the file as it now stands that one request carries |
+| `judge.maxDocChars` | `12000` | Characters of the changed file's doc |
+| `judge.maxRelatedDocs`, `judge.maxRelatedChars` | `4`, `12000` | Imported files' docs carried, and their total characters |
+| `judge.maxIndexChars` | `8000` | Characters of the project index |
+| `judge.maxRequestChars` | `4000` | Characters of the turn's prompt |
+| `judge.maxOutputTokens` | `4096` | Output-token cap of one request |
+| `judge.timeoutMs` | `180000` | Milliseconds one judgment may take once its request starts |
+| `judge.language` | `English` | Language of the judgment's prose |
+| `judge.provider`, `judge.model` | unset | Explicit route; both or neither. Without them the Session's current route answers |
+
 ### Inline-code links
 
 The closing prose links produced or delivered paths: an inline-code token resolves by exact target, by an exact argument recorded for that target, or by a unique basename. Every matching fact must identify the same file; ambiguous arguments and basenames stay inert. No suffix or current-directory guess is used. A resolved mention keeps its code chip and takes the markdown sheet's link language, with the full path as its title.
@@ -93,7 +138,7 @@ The closing prose links produced or delivered paths: an inline-code token resolv
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The Node half registers the static `ui:deliverable-file-references` system-prompt section described under [Model Experience](#model-experience). Explicit Markdown links use the shared [Markdown renderer](../ui-primitives/README.md); inline-code matching remains limited to produced or delivered files. The browser half registers a wrapper around the changed-files card and explicit deliveries into the chat view's `conversation.chat.turnTail` list alongside other feature artifacts. `deliverablesDefinition` folds the sequence of each Turn's latest validated `workspace/changes` announcement into `DeliverablesTurnData.changes`, whose summary the card reads from the Host and caches until the connection is replaced, its `deliverables/presented` events into deliveries, and the successful first-party mutation calls of `write`, `edit`, and mutating `str_replace_editor` commands into recorded file targets and exact argument aliases after validating their raw arguments; the produced paths feed only the prose mention resolver. Successful absolute `meta.path` values identify those targets. Root results without that field retain the legacy argument fallback; malformed relative targets contribute no guessed path. Reads, deletes, unsupported tools, malformed calls, malformed events, and failed results contribute nothing. Each row opens `dsh-resource://changes-review/session/<sessionId>/<seq>/<turn>` through `ctx.sidebarRight.openResource` with the file's index as the `changes-review` navigation parameter; the package registers the `changes-review` tab type at the `builtin` band for that pattern and its body under the keyed `sidebar.right.pane.tab` seat with an exclusive store of per-tab choices, and the body reads the summary and the comparisons through the authenticated routes into stores cleared on connection replacement. The package also provides the `chatFileMentions` service the chat view consults per closing message; composing the plugin out removes every surface and leaves the view's empty list at zero cost.
+The Node half registers the static `ui:deliverable-file-references` system-prompt section described under [Model Experience](#model-experience). Explicit Markdown links use the shared [Markdown renderer](../ui-primitives/README.md); inline-code matching remains limited to produced or delivered files. The browser half registers a wrapper around the changed-files card and explicit deliveries into the chat view's `conversation.chat.turnTail` list alongside other feature artifacts. `deliverablesDefinition` folds the sequence of each Turn's latest validated `workspace/changes` announcement into `DeliverablesTurnData.changes`, whose summary the card reads from the Host and caches until the connection is replaced, its `deliverables/presented` events into deliveries, and the successful first-party mutation calls of `write`, `edit`, and mutating `str_replace_editor` commands into recorded file targets and exact argument aliases after validating their raw arguments; the produced paths feed only the prose mention resolver. Successful absolute `meta.path` values identify those targets. Root results without that field retain the legacy argument fallback; malformed relative targets contribute no guessed path. Reads, deletes, unsupported tools, malformed calls, malformed events, and failed results contribute nothing. Each row opens `dsh-resource://changes-review/session/<sessionId>/<seq>/<turn>` through `ctx.sidebarRight.openResource` with the file's index as the `changes-review` navigation parameter; the package registers the `changes-review` tab type at the `builtin` band for that pattern and its body under the keyed `sidebar.right.pane.tab` seat with an exclusive store of per-tab choices, and the body reads the summary and the comparisons through the authenticated routes into stores cleared on connection replacement. The package also provides the `chatFileMentions` service the chat view consults per closing message, and the `chatRewind` service behind Chat's prompt rewind: the authenticated `/api/changes.rewind` route answers GET with the conversation cut point before the turn (the previous `turn/end` and the standalone events after it) and `workspaceChanges.rewindPlan`, and answers POST by running `workspaceChanges.rewind`, refusing with 409 while a turn of the Session runs. Composing the plugin out removes every surface and leaves the view's empty list at zero cost.
 
 Native opening uses an authenticated POST addressed by the viewed Session, event sequence, and original file index; the review tab's native open of a changed file uses the same coordinates. For a declaration the Host reads the viewed Session header with the event and passes its cwd, or the deployment workspace root when absent, to `workspaceFiles.stat`; for a changed file it passes the working directory the served summary carries. This uses the same composed filesystem as Sidebar previews and does not activate an Agent, including for child Sessions. Native actions require the canonical process path to map from a Host path back to that same process path. Providers without this mapping return 422, after which the review tab hides its native open; a same-named Host file is insufficient. The same configured desktop availability governs metadata and execution. Edits affect subsequent opens; deletion returns an error. No file-content copy or attachment is created. Plugin disposal cancels and awaits pending native-open requests.
 
@@ -148,6 +193,34 @@ One request per distinct comparison: the input is the instruction plus up to `ex
 
 No main-request invalidation: the request never enters the conversation. Provider cache reuse across explanation requests is incidental, since each carries a different comparison after the same instruction.
 
+### Auxiliary codebase docs request
+
+#### What the model sees
+
+One system instruction and one user message per source file. The instruction asks for a `SUMMARY:` line and Markdown sections (Purpose, API with one heading per symbol, Dependencies, Notes) describing intended behavior and contracts precisely enough for a later reviewer, in the configured language, and tells the model to treat the file as data. The user message holds the file's project-relative path and its content cut at `codebaseDocs.maxFileChars`. No tools and no conversation history.
+
+#### Token effect
+
+One request per source file whose content changed since its doc was written: a project's first run costs up to `codebaseDocs.maxFiles` requests, later runs only the changed files, and each turn the files it changed. Output is capped by `codebaseDocs.maxOutputTokens`. Nothing enters agent history or the Session log.
+
+#### KV Cache effect
+
+No main-request invalidation. Docs requests share their instruction, so a provider prefix cache can reuse it across files.
+
+### Auxiliary judgment request
+
+#### What the model sees
+
+The judgment model receives one system instruction and one user message. The instruction casts it as an impartial senior engineer judging one file's change, lists the six aspects, defines the verdicts, severities, and confidence, forbids following instructions found in the data, and asks for one JSON object. The user message holds, in order, the turn's prompt cut at `judge.maxRequestChars`, the codebase index cut at `judge.maxIndexChars`, the file's earlier doc cut at `judge.maxDocChars`, up to `judge.maxRelatedDocs` imported files' docs within `judge.maxRelatedChars`, the turn's changed files with line counts, the comparison cut at `judge.maxDiffChars`, and up to `judge.contextLines` numbered lines of the file as it now stands. Missing evidence is stated as not available. No tools and no conversation history.
+
+#### Token effect
+
+One request per distinct comparison and turn, up to `min(N, judge.eagerFiles)` when a turn that changed N text files ends, plus one per other file a reader opens. The input is bounded by the character caps above and the output by `judge.maxOutputTokens`. Nothing enters agent history or the Session log.
+
+#### KV Cache effect
+
+No main-request invalidation. Judgment requests share their instruction; the rest differs per file.
+
 ## Known Limitations and Deferred Work
 
 <a id="known-limitations-and-deferred-work"></a>
@@ -165,6 +238,10 @@ These limits define the current deliverables vocabulary. They are current packag
 - **Explanations are model output and can be wrong** — the model sees one file's comparison and the start of the file, not the rest of the project or the conversation, so a stated purpose can be a guess from the path and the visible lines.
 - **Explanations spend tokens when nobody reads them** — each turn starts its first `explain.eagerFiles` files whether or not the review tab opens; lower the count, set it to `0`, or set `explain.enabled` to `false` to trade readiness for cost.
 - **Explanations last as long as the Session in this Host process** — like the summaries and comparisons they describe, a Host restart drops them.
+- **Codebase docs are written into the project** — they are files in `codebase_docs/` that any tool, including the agent, can read; delete the directory to have them written again, and set `codebaseDocs.enabled` to `false` to stop writing them.
+- **A project's first documentation run costs one request per source file** — up to `codebaseDocs.maxFiles` requests run in the background when a Session first opens in a project; judgments made before it finishes say the file had no docs.
+- **Judgments are model output and can be wrong** — the judge sees the docs, one file's change, and the start of the file, not the whole project or the conversation; its confidence is its own estimate, not a measured accuracy.
+- **The judge knows a turn's prompt only from this Host process** — a turn recorded before a Host restart, or a resumed Session's earlier turns, are judged without the request.
 - **The language is configured, not inferred** — `explain.language` applies to every Session, while the tab labels follow the interface language.
 - **Files outside the workspace open by absolute path only** — the recorded path is the Host path at recording time; a moved workspace or a different viewing Session cannot relocate it.
 

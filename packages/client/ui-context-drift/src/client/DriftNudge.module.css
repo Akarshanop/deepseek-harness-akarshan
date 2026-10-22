@@ -1,0 +1,137 @@
+/* Drift nudge: a standalone card in the composer context stack, sized like
+   the Todo, Goal, and Queue cards. The level class from DriftCard.module.css
+   sets --drift-tint. */
+
+.dock {
+  box-sizing: border-box;
+  width: calc(
+    100% -
+    var(--dsh-composer-side-clearance) -
+    var(--dsh-composer-side-clearance) -
+    var(--dsh-composer-dock-inset) -
+    var(--dsh-composer-dock-inset) -
+    var(--dsh-composer-dock-inset) -
+    var(--dsh-composer-dock-inset)
+  );
+  margin: 0 auto;
+}
+
+.bar {
+  position: relative;
+  isolation: isolate;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  max-width: calc(var(--dsh-composer-card-max-width) - 4 * var(--dsh-composer-dock-inset));
+  min-height: 36px;
+  margin: 0 auto;
+  padding: 4px 5px 4px 12px;
+  border: 0;
+  --dsw-elevation-stroke-color: var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-md);
+  box-shadow: var(--dsw-elevation-panel);
+}
+
+.bar::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--dsw-specific-menu);
+  backdrop-filter: var(--dsw-menu-backdrop-filter);
+  content: '';
+  pointer-events: none;
+}
+
+.glyph {
+  display: inline-flex;
+  flex: none;
+  color: var(--drift-tint, var(--dsw-alias-label-tertiary));
+}
+
+.label {
+  flex: none;
+  font-size: 13px;
+  line-height: 24px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--drift-tint, var(--dsw-alias-label-primary));
+}
+
+.text,
+.error {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.text {
+  color: var(--dsw-alias-label-primary-dimmed);
+}
+
+.error {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+.action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.action:first-child {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.action:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.action:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.iconBtn:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+}

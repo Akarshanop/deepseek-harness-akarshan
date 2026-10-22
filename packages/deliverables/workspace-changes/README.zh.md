@@ -47,6 +47,8 @@ kind: "package-reference"
 
 每个文件携带持久的 `path`——位于工作目录内时为相对路径，否则为绝对路径——以及用于排序和标签的 `display` 路径：相对路径，仓库内位于工作目录之上的文件为 `../` 路径，家目录下的文件为 `~` 路径，其余为绝对路径。文件按 `display` 的码元顺序排序，因此上级路径和绝对路径排在工作目录自身文件之前。`workspace/changes` 事件只携带轮号；`ctx.workspaceChanges.summary(sessionId, seq)` 返回该序号的事件宣告的摘要，Session 已释放或本 Host 进程从未记录时返回 undefined。`ctx.workspaceChanges.diff(sessionId, seq, index, signal)` 对比该下标所列的文件：从两棵快照树或两份副本得出带三行上下文的 hunk；git 报告为二进制或某一侧含 NUL 字节时返回 `binary`；某一侧超过 `maxFileBytes` 时返回 `oversized`。逐行对比运行超过 `diffTimeoutMs` 时退化为一个替换全部行的 hunk，并标记 `coarse`。因此 Host 重启后重新打开的对话，先前轮次既没有卡片也没有对比。
 
+`ctx.workspaceChanges.rewindPlan(sessionId, turn)` 列出把 Session 回退到 `turn` 开始时会恢复哪些文件，不触碰工作区；`ctx.workspaceChanges.rewind(sessionId, turn, signal)` 在排队的记录工作完成后执行恢复。从 `turn` 起被记录的轮次改动过的每个路径，都恢复为这些轮次中最早改动它的那一轮开始时的内容：快照一侧通过私有索引用 `checkout-index` 写回并保留文件模式，捕获的副本则直接覆盖写回；当时不存在的路径会被删除，因此重命名会恢复旧路径并删除新路径。这些轮次没有改动的文件保持不变。大于 `maxFileBytes` 的副本、嵌套仓库，以及无法写入或删除的路径会被报告为跳过。`incomplete` 表示其中部分轮次运行于本 Host 进程开始记录该 Session 之前，或其记录失败，因此它们的改动无法恢复；计划中的 `shellUntracked` 表示有轮次没有快照，其 shell 修改从未被记录。调用方需确保回退期间该 Session 没有正在运行的轮次。
+
 -----
 
 <a id="understand-the-implementation"></a>
@@ -94,6 +96,7 @@ git 通过 `subprocess` 能力运行，使用净化后的环境、`GIT_CONFIG_CO
 - 对比会把所列文件的完整文本送到客户端，包括被忽略的文件、工作目录之上的仓库文件和工作区外的文件；摘要路由只送路径和行数。必须把这类内容留在 Host 上的部署应把本插件组合出去。
 - 退化为整文件替换的对比携带两侧的全部行，最多两倍 `maxFileBytes`。
 - Windows 路径在 `path` 中保留原生分隔符；`display` 始终用斜杠分隔。
+- 回退只能恢复本 Host 进程记录过的内容：Host 重启前运行的轮次，以及快照覆盖范围之外的 shell 修改，会保留其改动。文件工具捕获发生在该轮第一次用文件工具编辑某路径时，因此同一轮中更早对该路径的 shell 修改不会被撤销。
 
 <a id="dev-note"></a>
 ### 开发备注

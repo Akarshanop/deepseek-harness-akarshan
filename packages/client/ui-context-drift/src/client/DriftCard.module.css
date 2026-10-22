@@ -1,0 +1,111 @@
+/* Drift breakdown card body. The level class sets --drift-tint for the score,
+   the bar fill, and the level label. */
+
+.fresh {
+  --drift-tint: var(--dsw-alias-state-success-primary);
+}
+
+.drifting {
+  --drift-tint: var(--dsw-alias-state-warn-primary);
+}
+
+.high {
+  --drift-tint: var(--dsw-alias-state-error-primary);
+}
+
+.card {
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.score {
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--drift-tint, var(--dsw-alias-label-primary));
+}
+
+.bar {
+  height: 4px;
+  margin: 8px 0 10px;
+  border-radius: 999px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  overflow: hidden;
+}
+
+.fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--drift-tint, var(--dsw-alias-label-tertiary));
+}
+
+.advice {
+  margin: 0 0 8px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.level {
+  font-weight: 500;
+  color: var(--drift-tint, var(--dsw-alias-label-primary));
+}
+
+.rows {
+  margin: 0;
+}
+
+.section {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 1px 0;
+}
+
+.row dt {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.row dd {
+  margin: 0;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-primary);
+  text-align: right;
+}
+
+.note {
+  margin: 8px 0 0;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.error {
+  margin: 8px 0 0;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}

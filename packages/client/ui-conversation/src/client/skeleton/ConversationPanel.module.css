@@ -113,6 +113,11 @@
   background: var(--dsw-alias-bg-layer-1);
 }
 
+/* Rows keep their height so a long list scrolls instead of compressing. */
+.picker > * {
+  flex-shrink: 0;
+}
+
 .pickerHint,
 .pickerEmpty {
   padding: 6px 8px;

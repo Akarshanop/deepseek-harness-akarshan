@@ -21,6 +21,7 @@ import {
 import { SessionSeq, type SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import { createChatStore } from '../src/client/stores.ts'
+import type { ChatRewindFiles } from '../src/client/contract/slots.ts'
 import { CHAT_SETTINGS_NAMESPACE, type ChatSettings } from '../src/chat-settings.ts'
 import type { LinkOpeningRowInjected } from '../src/client/settings/LinkOpeningRow.tsx'
 import type { TranscriptViewRowInjected } from '../src/client/settings/TranscriptViewRow.tsx'
@@ -234,6 +235,44 @@ describe('Chat inject API', () => {
         sessionId: ROOT, atSeq: 18, increaseTitle: true, onCreated: expect.any(Function) as (childId: SessionId) => void,
       })
     })
+    await b.runtime.dispose()
+  })
+
+  it('rewinds through the files provider, forks before the turn, and opens the fork with the prompt', async () => {
+    const b = await bench()
+    const { injected } = b.chatViewApi(b.rootReference)
+    const signal = new AbortController().signal
+    await expect(injected.rewind.preview(3, signal)).rejects.toThrow('chatRewind provider')
+    await expect(injected.rewind.rewind(3, 7)).rejects.toThrow('chatRewind provider')
+
+    const preview = { atSeq: 7, running: false, files: ['a.txt'], oversized: [], incomplete: false, shellUntracked: false }
+    const restore = vi.fn<ChatRewindFiles['restore']>(async () => ({ kind: 'running' }))
+    b.runtime.ctx.provide('chatRewind', { preview: vi.fn(async () => preview), restore } satisfies ChatRewindFiles)
+    expect(await injected.rewind.preview(3, signal)).toBe(preview)
+    const fork = vi.spyOn(b.runtime.sessions, 'fork').mockResolvedValue(ROOT)
+    expect(await injected.rewind.rewind(3, 7)).toEqual({ kind: 'running' })
+    expect(fork).not.toHaveBeenCalled()
+    restore.mockResolvedValueOnce({ kind: 'restored', skipped: [{ display: 'big.bin', reason: 'oversized' }] })
+    expect(await injected.rewind.rewind(3, 7)).toEqual({ kind: 'rewound', sessionId: ROOT, skipped: [{ display: 'big.bin', reason: 'oversized' }] })
+    expect(restore).toHaveBeenLastCalledWith(ROOT, 3)
+    expect(fork).toHaveBeenCalledWith({ sessionId: ROOT, atSeq: 7, increaseTitle: true })
+
+    const conversation = b.runtime.ctx.get('conversation')
+    if (conversation === undefined) throw new Error('fixture lacks the conversation service')
+    const requestDraftInitialization = vi.spyOn(conversation.input, 'requestDraftInitialization').mockReturnValue('applied')
+    injected.rewind.open(ROOT, 'fix the bug', false)
+    await vi.waitFor(() => { expect(b.openSession).toHaveBeenCalledWith(ROOT) })
+    expect(requestDraftInitialization).toHaveBeenCalledWith(expect.objectContaining({ sessionId: ROOT }), { prompt: 'fix the bug', clearPreviousDraft: true })
+    expect(b.session.prompt).not.toHaveBeenCalled()
+
+    injected.rewind.open(ROOT, 'fix the other bug', true)
+    await vi.waitFor(() => {
+      expect(b.session.prompt).toHaveBeenCalledWith([{ type: 'text', text: 'fix the other bug' }], 'queue', undefined, expect.any(String))
+    })
+    expect(requestDraftInitialization).toHaveBeenCalledOnce()
+    b.session.prompt.mockRejectedValueOnce(new Error('offline'))
+    injected.rewind.open(ROOT, 'again', true)
+    await vi.waitFor(() => { expect(b.session.prompt).toHaveBeenCalledTimes(2) })
     await b.runtime.dispose()
   })
 

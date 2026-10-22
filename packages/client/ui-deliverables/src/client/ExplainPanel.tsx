@@ -7,8 +7,12 @@ import type { ChangesExplainState } from './changes-explain.ts'
 import type { NS } from './locales.ts'
 import css from './ExplainPanel.module.css'
 
-/** Text with its backtick-quoted identifiers set as code; the model's text is never read as markup. */
-function InlineCode({ text }: { text: string }): ReactNode {
+/**
+ * Text with its backtick-quoted identifiers set as code; the model's text is never read as markup.
+ * @param props - the text.
+ * @returns the text with code spans.
+ */
+export function InlineCode({ text }: { text: string }): ReactNode {
   return text.split(/`([^`]+)`/).map((part, at) => at % 2 === 1
     ? <code key={at} className={css.code}>{part}</code>
     : <Fragment key={at}>{part}</Fragment>)

@@ -214,16 +214,21 @@ describe('ui-settings-models apply', () => {
     await fiber.await()
     // A keyed card extension and a footer entry register through the ordinary
     // ledger once the section's registration declared the seats.
+    // The section's own ChatGPT and Claude plan entries ride the same seats; a
+    // companion's default-priority card shadows the built-in one rather than
+    // colliding with it.
+    expect(b.slots.entries('settings.models.provider-card')).toHaveLength(1)
+    expect(b.slots.entries('settings.models.footer')).toHaveLength(2)
     const disposeCard = b.slots.register(
       { name: 'settings.models.provider-card', key: 'llm-pi-ai' } as never,
       () => null,
     )
     b.slots.register({ name: 'settings.models.footer', id: 'extra', order: 0 } as never, () => null)
-    expect(b.slots.entries('settings.models.provider-card')).toHaveLength(1)
-    expect(b.slots.entries('settings.models.footer')).toHaveLength(1)
+    expect(b.slots.entries('settings.models.provider-card')).toHaveLength(2)
+    expect(b.slots.entries('settings.models.footer')).toHaveLength(3)
     // Extension-side HMR safety: its own disposer removes the entry.
     disposeCard()
-    expect(b.slots.entries('settings.models.provider-card')).toHaveLength(0)
+    expect(b.slots.entries('settings.models.provider-card')).toHaveLength(1)
     // Declarer unload cascades whatever extension entries remain.
     await fiber.dispose()
     expect(b.slots.entries('settings.models.footer')).toHaveLength(0)

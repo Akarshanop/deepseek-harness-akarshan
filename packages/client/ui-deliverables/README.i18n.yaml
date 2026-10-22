@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/client/ui-deliverables/README.md
 /:
-  en: aec55a1de912a5ba
-  zh: 4ac79b2f4ec8ecba
+  en: db3a05867c5d080b
+  zh: c49fb6208e6257f5
 /deepseek-ai-dsh-client-ui-deliverables:
   en: baa21bacf9d87975
   zh: caf2b019a43f4009
 /deepseek-ai-dsh-client-ui-deliverables/summary:
-  en: 8113544773e71c5f
-  zh: a0203dd5d4f51014
+  en: d81e30f4196201a5
+  zh: e7c8c7bdb7d98203
 /deepseek-ai-dsh-client-ui-deliverables/table-of-contents:
   en: d152484eb41ac6b4
   zh: 09388d293f9be9cb
@@ -27,14 +27,20 @@
   en: 231547659321f3a8
   zh: bc5935cdd46ada56
 /deepseek-ai-dsh-client-ui-deliverables/use-this-package/file-explanations:
-  en: 59e32383de5d02d8
-  zh: 9a3459527135153b
+  en: fc5be8b0b3ee5472
+  zh: 497b0d1e229f6138
+/deepseek-ai-dsh-client-ui-deliverables/use-this-package/codebase-docs:
+  en: 1c00e0fa9932b8de
+  zh: dd9d6c2fb0a3c578
+/deepseek-ai-dsh-client-ui-deliverables/use-this-package/change-judgments:
+  en: 8611f0a815c99199
+  zh: fc16f6544b54b41b
 /deepseek-ai-dsh-client-ui-deliverables/use-this-package/inline-code-links:
   en: ef13aac8ac36a5c3
   zh: 1e2ae4b3eaf98818
 /deepseek-ai-dsh-client-ui-deliverables/understand-the-implementation:
-  en: f654583a69666577
-  zh: 5c05f4788dcc59e6
+  en: b4a4b0e9a40a77c0
+  zh: f9a370e4b442c8f1
 /deepseek-ai-dsh-client-ui-deliverables/further-exploration:
   en: 476b59e8671db982
   zh: b3d0495a03e8940a
@@ -65,9 +71,33 @@
 /deepseek-ai-dsh-client-ui-deliverables/model-experience/auxiliary-explanation-request/kv-cache-effect:
   en: 1980af81032403ec
   zh: d69d1e3ea28a882d
+/deepseek-ai-dsh-client-ui-deliverables/model-experience/auxiliary-codebase-docs-request:
+  en: db689893bc844e7d
+  zh: cfbbc127216c0b50
+/deepseek-ai-dsh-client-ui-deliverables/model-experience/auxiliary-codebase-docs-request/what-the-model-sees:
+  en: ce143cc690e6a994
+  zh: 207db83c53350d23
+/deepseek-ai-dsh-client-ui-deliverables/model-experience/auxiliary-codebase-docs-request/token-effect:
+  en: 49efb02a06edff50
+  zh: a76b46fa111e062e
+/deepseek-ai-dsh-client-ui-deliverables/model-experience/auxiliary-codebase-docs-request/kv-cache-effect:
+  en: 8cb7cd39bfa1bc91
+  zh: b3b4ee245406d1da
+/deepseek-ai-dsh-client-ui-deliverables/model-experience/auxiliary-judgment-request:
+  en: 0a5b7ca8ff981af0
+  zh: e2bfd7bcaa6090ee
+/deepseek-ai-dsh-client-ui-deliverables/model-experience/auxiliary-judgment-request/what-the-model-sees:
+  en: 82af64455331def1
+  zh: 0625c45b22481a6f
+/deepseek-ai-dsh-client-ui-deliverables/model-experience/auxiliary-judgment-request/token-effect:
+  en: 035338ad51b5d0f0
+  zh: 275b63a82c565ba1
+/deepseek-ai-dsh-client-ui-deliverables/model-experience/auxiliary-judgment-request/kv-cache-effect:
+  en: 15620d978e7952e7
+  zh: f9c044844bb558ff
 /deepseek-ai-dsh-client-ui-deliverables/known-limitations-and-deferred-work:
-  en: 71080a80afbe959c
-  zh: b6f806f751b5519c
+  en: 3a5b42311451c735
+  zh: b2529a3c3fda9ef9
 /deepseek-ai-dsh-client-ui-deliverables/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: 3bb0c20c93f16f98

@@ -435,6 +435,7 @@ describe('task admission and package contracts', () => {
       { id: 'tool-subagent-claude-code', name: '@deepseek-ai/dsh-tool-subagent', config: {
         provider: 'claude-code', toolName: 'subagent_claude_code', maxDepth: 'provider-managed',
       } },
+      { id: 'llm-claude-plan', name: '@deepseek-ai/dsh-subagent-claude-code/llm' },
     ] }])
     expect(manifest.dependencies).toHaveProperty('@deepseek-ai/dsh-tool-subagent', 'workspace:*')
   })

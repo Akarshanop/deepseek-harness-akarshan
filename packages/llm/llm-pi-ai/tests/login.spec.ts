@@ -19,7 +19,7 @@ vi.mock('../src/models.ts', async importOriginal => ({
   createModels: () => ({ setProvider: () => {}, login }),
 }))
 
-const { credentialStoreFrom, authContextFrom, recordKeyFor } = await import('../src/auth.ts')
+const { credentialStoreFrom, authContextFrom, chatGptRegistrationStoreFrom, recordKeyFor } = await import('../src/auth.ts')
 const { catalogProvider } = await import('../src/catalog.ts')
 const { registerPiAiFlows } = await import('../src/login.ts')
 
@@ -35,7 +35,7 @@ async function harness(): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(LocalCredentialProvider, { path: join(dir, '.credentials.yaml'), watch: false })
   await ctx.plugin(AuthorizationService)
-  registerPiAiFlows(ctx, { credentials: credentialStoreFrom(ctx), authContext: authContextFrom(ctx) })
+  registerPiAiFlows(ctx, { credentials: credentialStoreFrom(ctx), authContext: authContextFrom(ctx) }, chatGptRegistrationStoreFrom(ctx))
   return ctx
 }
 
@@ -104,11 +104,11 @@ describe('pi-ai login flows', () => {
     // through its own prompt rather than leaving it to the settings form.
     expect(offered.find(entry => entry.key === recordKeyFor('deepseek'))?.methods.map(one => one.id))
       .toEqual(['api-key'])
-    // pi-ai ships Sign in with ChatGPT for `openai`, which needs an
-    // installation ID the harness does not supply; only the key login is offered.
+    // `openai` offers OpenAI's Sign in with ChatGPT for open-source apps,
+    // labelled as OpenAI's guidelines name the action, before its key login.
     expect(catalogProvider('openai')?.auth.oauth?.loginLabel).toBe('Sign in with ChatGPT')
-    expect(offered.find(entry => entry.key === recordKeyFor('openai'))?.methods.map(one => one.id))
-      .toEqual(['api-key'])
+    expect(offered.find(entry => entry.key === recordKeyFor('openai'))?.methods)
+      .toEqual([{ id: 'oauth', label: 'Continue with ChatGPT' }, { id: 'api-key', label: 'OpenAI API key' }])
   })
 
   it('runs the pi-ai auth type the chosen method names', async () => {

@@ -12,11 +12,12 @@ import { SessionId } from '@deepseek-ai/dsh-session/types'
 import { fileAddressFor } from '@deepseek-ai/dsh-util-workspace-path'
 import type { WorkspaceDiffHunk } from '@deepseek-ai/dsh-workspace-changes/types'
 import {
-  changesDiffUrl, changesExplainUrl, changesReviewAddress, changesSummaryUrl, parseChangesReviewAddress,
-  type ChangesDiff, type ChangesExplanation, type ChangesSummary,
+  changesDiffUrl, changesExplainUrl, changesJudgeUrl, changesReviewAddress, changesSummaryUrl, parseChangesReviewAddress,
+  type ChangesDiff, type ChangesExplanation, type ChangesJudgment, type ChangesSummary,
 } from '../src/changes.ts'
 import { ChangesDiffStore } from '../src/client/changes-diff.ts'
 import { ChangesExplainStore } from '../src/client/changes-explain.ts'
+import { ChangesJudgeStore } from '../src/client/changes-judge.ts'
 import { ChangesSummaryStore } from '../src/client/changes-summary.ts'
 import { PresentedOpenController } from '../src/client/present-open.ts'
 import {
@@ -88,13 +89,14 @@ describe('review store', () => {
   it('seeds a tab on its first navigation, applies later ones, toggles views, and forgets', () => {
     const store = createReviewStore().create()
     store.actions.navigated(TAB, 1, 2)
-    expect(store.getSnapshot().byTab[TAB]).toEqual({ index: 2, split: true, wrap: false, explain: true, navigated: 1 })
+    expect(store.getSnapshot().byTab[TAB]).toEqual({ index: 2, split: true, wrap: false, explain: true, judge: true, navigated: 1 })
     store.actions.toggledSplit(TAB)
     store.actions.toggledWrap(TAB)
     store.actions.toggledExplain(TAB)
+    store.actions.toggledJudge(TAB)
     store.actions.selected(TAB, 0)
     store.actions.navigated(TAB, 2, 1)
-    expect(store.getSnapshot().byTab[TAB]).toEqual({ index: 1, split: false, wrap: true, explain: false, navigated: 2 })
+    expect(store.getSnapshot().byTab[TAB]).toEqual({ index: 1, split: false, wrap: true, explain: false, judge: false, navigated: 2 })
     store.actions.forget(TAB)
     expect(store.getSnapshot().byTab[TAB]).toBeUndefined()
     expect(() => { store.actions.selected(TAB, 0) }).toThrow('no review state')
@@ -143,6 +145,7 @@ describe('ReviewTab', () => {
     summaries?: ChangesSummaryStore
     diffs?: ChangesDiffStore
     explanations?: ChangesExplainStore
+    judgments?: ChangesJudgeStore
     controller?: PresentedOpenController
     locale?: typeof en
     params?: unknown
@@ -155,6 +158,7 @@ describe('ReviewTab', () => {
     const summaries = options.summaries ?? new ChangesSummaryStore()
     const diffs = options.diffs ?? new ChangesDiffStore()
     const explanations = options.explanations ?? new ChangesExplainStore()
+    const judgments = options.judgments ?? new ChangesJudgeStore()
     const controller = options.controller ?? new PresentedOpenController()
     const store = createReviewStore().create()
     const aborter = new AbortController()
@@ -167,6 +171,7 @@ describe('ReviewTab', () => {
       loadChangesSummary: vi.fn<ReviewInjected['loadChangesSummary']>(() => Promise.resolve()),
       loadChangesDiff: vi.fn<ReviewInjected['loadChangesDiff']>(() => Promise.resolve()),
       loadChangesExplain: vi.fn<ReviewInjected['loadChangesExplain']>(() => Promise.resolve()),
+      loadChangesJudge: vi.fn<ReviewInjected['loadChangesJudge']>(() => Promise.resolve()),
       reloadPresentedHost: vi.fn<ReviewInjected['reloadPresentedHost']>(() => Promise.resolve()),
       openChanged: vi.fn<ReviewInjected['openChanged']>(() => Promise.resolve(null)),
     }
@@ -195,6 +200,7 @@ describe('ReviewTab', () => {
       useChangesSummary: hookOf(summaries.state),
       useChangesDiff: hookOf(diffs.state),
       useChangesExplain: hookOf(explanations.state),
+      useChangesJudge: hookOf(judgments.state),
       usePresentedOpen: hookOf(controller.state),
       usePresentedHost: hookOf(controller.host),
       t: makeTranslate(options.locale ?? en),
@@ -202,7 +208,7 @@ describe('ReviewTab', () => {
     } as ReviewTabProps
     const view = render(<ReviewTab {...runtime} />)
     return {
-      view, injected, tabActions, store, aborter, summaries, diffs, explanations, controller,
+      view, injected, tabActions, store, aborter, summaries, diffs, explanations, judgments, controller,
       rerender: () => { view.rerender(<ReviewTab {...runtime} />) },
     }
   }
@@ -461,7 +467,7 @@ describe('ReviewTab', () => {
       expect([...panel.querySelectorAll('li')].map(item => item.textContent)).toEqual(['Renames start to boot.', 'Drops the unused import.'])
       expect([...panel.querySelectorAll('code')].map(code => code.textContent)).toEqual(['App', 'start', 'boot'])
       // The panel shares the content row with the comparison.
-      expect(panel.parentElement?.querySelector('[data-review-view], [role="status"]')).toBeTruthy()
+      expect(panel.parentElement?.parentElement?.querySelector('[data-review-view], [role="status"]')).toBeTruthy()
       expect(injected.loadChangesExplain).toHaveBeenCalledTimes(1)
     })
 
@@ -524,6 +530,101 @@ describe('ReviewTab', () => {
       summaries.state.set({ [SUMMARY_URL]: summary })
       const { injected } = mount({ summaries, hostSessionId: SessionId('host') })
       expect(injected.loadChangesExplain).toHaveBeenCalledWith('viewed', 5, 0)
+    })
+  })
+
+  describe('judge', () => {
+    const JUDGE_URL = changesJudgeUrl(SESSION, 5, 0)
+    const judgment: ChangesJudgment = {
+      verdict: 'concerns', confidence: 72, summary: 'Renames `start` but misses one caller.',
+      issues: [
+        { severity: 'high', title: 'Caller still uses `start`', detail: 'Update `main.ts` to call `boot`.', line: 12 },
+        { severity: 'low', title: 'Stale comment', detail: '' },
+      ],
+      checks: [
+        { aspect: 'request', status: 'pass', note: 'Does the rename.' },
+        { aspect: 'docs', status: 'fail', note: 'The documented `start` entry point is gone.' },
+        { aspect: 'tests', status: 'na', note: '' },
+      ],
+      suggestions: ['Keep `start` as a deprecated alias.'],
+      basis: { docs: true, request: true },
+    }
+    const withSummary = (judgments = new ChangesJudgeStore(), params?: unknown) => {
+      const summaries = new ChangesSummaryStore()
+      summaries.state.set({ [SUMMARY_URL]: summary })
+      return mount({ summaries, judgments, params })
+    }
+    const panelOf = (view: ReturnType<typeof mount>['view']) => view.queryByRole('complementary', { name: en['review.judgeAria'] })
+
+    it('asks for the shown file\'s judgment and draws its verdict, confidence, issues, checks, and suggestions', () => {
+      const { view, injected, judgments } = withSummary()
+      expect(injected.loadChangesJudge).toHaveBeenCalledTimes(1)
+      expect(injected.loadChangesJudge).toHaveBeenLastCalledWith('viewed', 5, 0)
+      expect(panelOf(view)?.getAttribute('aria-busy')).toBe('true')
+      expect(view.getByText(en['judge.loading'])).toBeTruthy()
+      act(() => { judgments.state.set({ [JUDGE_URL]: judgment }) })
+      const panel = panelOf(view)!
+      expect(panel.hasAttribute('aria-busy')).toBe(false)
+      expect(view.getByText(en['judge.verdict.concerns'])).toBeTruthy()
+      expect(view.getByText('Confidence 72%')).toBeTruthy()
+      expect(view.getByRole('meter', { name: en['judge.confidenceAria'] }).getAttribute('aria-valuenow')).toBe('72')
+      expect(view.getByText(en['judge.aspect.docs'])).toBeTruthy()
+      expect(view.getByRole('img', { name: en['judge.status.fail'] })).toBeTruthy()
+      expect(view.getByText('Line 12')).toBeTruthy()
+      expect(view.getByText(en['judge.suggestions'])).toBeTruthy()
+      expect([...panel.querySelectorAll('[data-severity]')].map(item => item.getAttribute('data-severity'))).toEqual(['high', 'low'])
+      expect(view.queryByText(en['judge.noDocs'])).toBeNull()
+      // The judgment sits before the explanation, beside the comparison.
+      const explain = view.getByRole('complementary', { name: en['review.explainAria'] })
+      expect(panel.compareDocumentPosition(explain) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    })
+
+    it('states the evidence the judge lacked and that it found no issues', () => {
+      const { view, judgments } = withSummary()
+      act(() => { judgments.state.set({ [JUDGE_URL]: { ...judgment, verdict: 'pass', issues: [], checks: [], suggestions: [], summary: '', basis: { docs: false, request: false } } }) })
+      expect(view.getByText(en['judge.verdict.pass'])).toBeTruthy()
+      expect(view.getByText(en['judge.noIssues'])).toBeTruthy()
+      expect(view.getByText(en['judge.noDocs'])).toBeTruthy()
+      expect(view.getByText(en['judge.noRequest'])).toBeTruthy()
+      expect(view.queryByText(en['judge.checks'])).toBeNull()
+      act(() => { judgments.state.set({ [JUDGE_URL]: { ...judgment, verdict: 'fail', checks: [{ aspect: 'security', status: 'warn', note: '' }] } }) })
+      expect(view.getByText(en['judge.verdict.fail'])).toBeTruthy()
+      expect(view.getByRole('img', { name: en['judge.status.warn'] })).toBeTruthy()
+    })
+
+    it('offers a retry when the judgment cannot be written, and shows nothing when the Host has none', () => {
+      const { view, injected, judgments } = withSummary()
+      act(() => { judgments.state.set({ [JUDGE_URL]: 'error' }) })
+      expect(view.getByText(en['judge.error'])).toBeTruthy()
+      fireEvent.click(view.getByRole('button', { name: en['presented.retry'] }))
+      expect(injected.loadChangesJudge).toHaveBeenCalledTimes(2)
+      act(() => { judgments.state.set({ [JUDGE_URL]: 'missing' }) })
+      expect(panelOf(view)).toBeNull()
+      expect(view.queryByRole('button', { name: en['review.judgeAria'] })).toBeNull()
+    })
+
+    it('hides and shows the panel from the header, and reads nothing while it is hidden', () => {
+      const { view, injected, store, judgments } = withSummary()
+      act(() => { judgments.state.set({ [JUDGE_URL]: judgment }) })
+      const toggle = view.getByRole('button', { name: en['review.judgeAria'] })
+      expect(toggle.getAttribute('aria-pressed')).toBe('true')
+      fireEvent.click(toggle)
+      expect(store.getSnapshot().byTab[TAB]?.judge).toBe(false)
+      expect(panelOf(view)).toBeNull()
+      act(() => { store.actions.selected(TAB, 2) })
+      expect(injected.loadChangesJudge).toHaveBeenCalledTimes(1)
+      fireEvent.click(view.getByRole('button', { name: en['review.judgeAria'] }))
+      expect(panelOf(view)).toBeTruthy()
+      expect(injected.loadChangesJudge).toHaveBeenLastCalledWith('viewed', 5, 2)
+    })
+
+    it('does not ask for the judgment of a binary or oversized file', () => {
+      for (const params of [{ index: 1 }, { index: 3 }]) {
+        const { view, injected } = withSummary(new ChangesJudgeStore(), params)
+        expect(injected.loadChangesJudge).not.toHaveBeenCalled()
+        expect(panelOf(view)).toBeNull()
+        view.unmount()
+      }
     })
   })
 

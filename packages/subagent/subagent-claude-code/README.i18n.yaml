@@ -9,8 +9,8 @@
   en: 58cca9655f3f81ea
   zh: 0a33d9a4ed461350
 /deepseek-ai-dsh-subagent-claude-code/summary:
-  en: 498d97a8dd913e53
-  zh: d76f0cd25940c540
+  en: a16ac1784d3793e0
+  zh: 5117841663acfc71
 /deepseek-ai-dsh-subagent-claude-code/table-of-contents:
   en: d152484eb41ac6b4
   zh: 09388d293f9be9cb
@@ -26,6 +26,9 @@
 /deepseek-ai-dsh-subagent-claude-code/use-this-package/exposing-the-tool:
   en: ebf6ba7fef393ebb
   zh: fad30b829e2e4188
+/deepseek-ai-dsh-subagent-claude-code/use-this-package/use-your-claude-plan-as-a-model:
+  en: 57bdfe8e4ea16eaa
+  zh: 026890fb3e83d99f
 /deepseek-ai-dsh-subagent-claude-code/use-this-package/what-you-get:
   en: a731eabea54893d5
   zh: e370dba101b3a7e8
@@ -39,8 +42,8 @@
   en: c01f4a013f7f1a2f
   zh: 92221e45d438334d
 /deepseek-ai-dsh-subagent-claude-code/understand-the-implementation/source-map:
-  en: 4826e5016f7d9655
-  zh: 9b80696313be1816
+  en: ad0c2ff851ac4768
+  zh: d1c9b27472ef5b43
 /deepseek-ai-dsh-subagent-claude-code/understand-the-implementation/run-flow:
   en: f9f8e3845599978f
   zh: c93fc862f9b81bdb
@@ -74,9 +77,21 @@
 /deepseek-ai-dsh-subagent-claude-code/model-experience/parent-scheduling-and-results-indirectly/kv-cache-effect:
   en: 19f1316ea4bb1bb9
   zh: 181231ddffdc8494
+/deepseek-ai-dsh-subagent-claude-code/model-experience/claude-plan-model-route:
+  en: 819cb79b3ec88052
+  zh: b0cd107f262e3272
+/deepseek-ai-dsh-subagent-claude-code/model-experience/claude-plan-model-route/what-the-model-sees:
+  en: a605fa027601221d
+  zh: 30770a42292619b5
+/deepseek-ai-dsh-subagent-claude-code/model-experience/claude-plan-model-route/token-effect:
+  en: c0cafd5dd447cb82
+  zh: 734620f14091491f
+/deepseek-ai-dsh-subagent-claude-code/model-experience/claude-plan-model-route/kv-cache-effect:
+  en: 7d4f1c1774385fe1
+  zh: abc8aa16780a39a1
 /deepseek-ai-dsh-subagent-claude-code/known-limitations-and-deferred-work:
-  en: cd8c8a6f95d8b675
-  zh: ed01fe337166e7ad
+  en: 3719043d62f283aa
+  zh: 729a6fe3dc11be6e
 /deepseek-ai-dsh-subagent-claude-code/known-limitations-and-deferred-work/dev-note:
   en: 185beb4ff55f0946
   zh: 068ca7c57137eb33

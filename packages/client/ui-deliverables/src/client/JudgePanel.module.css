@@ -1,0 +1,45 @@
+/** The judgment column beside a comparison; a narrow review tab moves it, with the explanation, above the comparison. */
+.panel { display: flex; flex: 0 0 300px; flex-direction: column; gap: 12px; box-sizing: border-box; min-width: 0; min-height: 0; overflow: auto; padding: 12px 16px 16px; border-left: 0.5px solid var(--dsw-alias-border-l3); color: var(--dsw-alias-label-primary); font: var(--dsw-font-xs-13); }
+.title { display: flex; gap: 6px; align-items: center; margin: 0; font-size: 12px; font-weight: 500; color: var(--dsw-alias-label-secondary); }
+.title svg { flex: none; }
+.status { display: flex; gap: 12px; align-items: center; margin: 0; color: var(--dsw-alias-label-secondary); }
+.verdict { display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.badge { display: inline-flex; gap: 6px; align-items: center; padding: 2px 8px; border-radius: var(--dsw-radius-sm); font-weight: 500; line-height: 20px; }
+.verdict[data-verdict='pass'] .badge { color: var(--dsw-alias-state-success-primary); background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent); }
+.verdict[data-verdict='concerns'] .badge { color: var(--dsw-alias-state-warn-label); background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 14%, transparent); }
+.verdict[data-verdict='fail'] .badge { color: var(--dsw-alias-state-error-primary); background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent); }
+.confidenceText { font-family: var(--ds-font-family-code); font-size: 12px; color: var(--dsw-alias-label-secondary); }
+.meter { height: 4px; overflow: hidden; border-radius: 2px; background: var(--dsw-alias-interactive-bg-hover); }
+.meterFill { display: block; height: 100%; border-radius: 2px; background: var(--dsw-alias-label-tertiary); }
+.meter[data-verdict='pass'] .meterFill { background: var(--dsw-alias-state-success-primary); }
+.meter[data-verdict='concerns'] .meterFill { background: var(--dsw-alias-state-warn-primary); }
+.meter[data-verdict='fail'] .meterFill { background: var(--dsw-alias-state-error-primary); }
+.section { display: flex; flex-direction: column; gap: 6px; }
+.heading { margin: 0; font-size: 12px; font-weight: 500; color: var(--dsw-alias-label-tertiary); }
+.text, .detail, .list { margin: 0; line-height: 20px; overflow-wrap: anywhere; }
+.list { display: flex; flex-direction: column; gap: 6px; padding-left: 16px; }
+.muted { margin: 0; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-tertiary); overflow-wrap: anywhere; }
+.caveats { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-tertiary); }
+.caveats li { display: flex; gap: 6px; align-items: flex-start; }
+.caveats svg { flex: none; margin-top: 3px; }
+.issues, .checks { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.issue { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; border-left: 2px solid var(--dsw-alias-border-l3); border-radius: var(--dsw-radius-sm); background: var(--dsw-alias-interactive-bg-hover); }
+.issue[data-severity='high'] { border-left-color: var(--dsw-alias-state-error-primary); }
+.issue[data-severity='medium'] { border-left-color: var(--dsw-alias-state-warn-primary); }
+.issueHead { display: flex; gap: 6px; align-items: baseline; }
+.issueTitle { min-width: 0; font-weight: 500; line-height: 20px; overflow-wrap: anywhere; }
+.severity { flex: none; font-size: 11px; font-weight: 500; text-transform: uppercase; color: var(--dsw-alias-label-tertiary); }
+.issue[data-severity='high'] .severity { color: var(--dsw-alias-state-error-primary); }
+.issue[data-severity='medium'] .severity { color: var(--dsw-alias-state-warn-label); }
+.check { display: flex; gap: 8px; align-items: flex-start; }
+.checkIcon { display: inline-flex; flex: none; width: 14px; margin-top: 3px; color: var(--dsw-alias-label-tertiary); }
+.check[data-status='pass'] .checkIcon { color: var(--dsw-alias-state-success-primary); }
+.check[data-status='warn'] .checkIcon { color: var(--dsw-alias-state-warn-primary); }
+.check[data-status='fail'] .checkIcon { color: var(--dsw-alias-state-error-primary); }
+.checkBody { display: flex; flex-direction: column; min-width: 0; }
+.checkLabel { line-height: 20px; }
+.dash { width: 14px; text-align: center; line-height: 14px; }
+/* Keep this width in step with `.panels` in ReviewTab.module.css, which moves the panels above the comparison. */
+@container (max-width: 1100px) {
+  .panel { flex: 1 1 0; }
+}

@@ -65,7 +65,9 @@ import type { AdapterRegistrationHandle, DirectoryRegistrationHandle, LlmConfigu
 import type {} from '@deepseek-ai/dsh-fs'
 import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 import { PiAiAdapter } from './adapter.ts'
-import { authContextFrom, credentialStoreFrom } from './auth.ts'
+import { authContextFrom, chatGptRegistrationStoreFrom, credentialStoreFrom } from './auth.ts'
+import { CHATGPT_PROVIDER, isChatGptCredential } from './chatgpt.ts'
+import { registerChatGptRoutes } from './chatgpt-routes.ts'
 import { catalogProvider, catalogProviderIds } from './catalog.ts'
 import { assertServiceable, Config, resolveProfiles } from './config.ts'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
@@ -217,6 +219,7 @@ export function apply(ctx: Context, config: Config): void {
   // through `ctx` per call, so they stay correct across the collection rebuilds
   // a configuration change causes, and a sign-in survives one.
   const auth = { credentials: credentialStoreFrom(ctx), authContext: authContextFrom(ctx) }
+  const chatGptRegistration = chatGptRegistrationStoreFrom(ctx)
   const adapter = new PiAiAdapter({
     profiles,
     resolveApiKey,
@@ -227,6 +230,14 @@ export function apply(ctx: Context, config: Config): void {
       hostPath => ctx.get('fs')?.processPathFromHostPath(hostPath),
       ref,
     ),
+    // A route signed in with ChatGPT and naming no API key serves only the
+    // models the account's plan lists.
+    usableModels: async (provider, profile) => {
+      if (provider !== CHATGPT_PROVIDER || profile.apiKeyEnv !== undefined) return undefined
+      if (!isChatGptCredential(await auth.credentials.read(provider))) return undefined
+      const planModels = (await chatGptRegistration.read())?.planModels
+      return planModels === undefined ? undefined : new Set(planModels)
+    },
     onReplayDegrade: ({ provider, model, reason }) => {
       ctx.logger.warn(
         `llm-pi-ai: unusable replay state on assistant history for route "${provider}/${model}";`
@@ -239,7 +250,10 @@ export function apply(ctx: Context, config: Config): void {
   // Scoped to the authorization seam rather than injected outright, because a
   // composition without it (headless, ACP) simply has no surface to sign in
   // from, while everything else this plugin does still works.
-  ctx.inject(['authorization'], (authorized) => { registerPiAiFlows(authorized, auth) })
+  ctx.inject(['authorization'], (authorized) => { registerPiAiFlows(authorized, auth, chatGptRegistration) })
+  // The Models settings page signs the `openai` route in with ChatGPT through
+  // this route; it exists only where a web connection serves that page.
+  registerChatGptRoutes(ctx, { credentials: auth.credentials, registration: chatGptRegistration, profiles })
   // The full installed catalog is configurable from the moment the plugin
   // mounts — dormant or not — so configuration surfaces can offer every
   // pi-ai provider before any route exists. Hand-declared routes join it as

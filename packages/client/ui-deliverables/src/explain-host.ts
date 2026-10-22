@@ -4,13 +4,13 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-api-workspace-files'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-workspace-changes/types'
 import { CHANGES_EXPLAIN_PATH, type ChangesExplanation } from './changes.ts'
-import { ChangeExplainer, type ExplainConfig, type ExplainPrompt } from './explain.ts'
+import { ChangeExplainer, type ExplainConfig, type ExplainPorts } from './explain.ts'
+import { assertRoutePair, completeOnRoute, sessionRoute } from './model-call.ts'
 import { changedFileCoordinates } from './present-open.ts'
 
 /** Schemastery validation for {@link ExplainConfig}. */
@@ -44,58 +44,49 @@ export function assertExplainConfig(config: ExplainConfig): void {
     }
   }
   if (config.timeoutMs > MAX_TIMER_DELAY_MS) throw new Error(`ui-deliverables: explain.timeoutMs must not exceed ${MAX_TIMER_DELAY_MS}`)
-  if ((config.provider === undefined) !== (config.model === undefined)) {
-    throw new Error('ui-deliverables: explain.provider and explain.model must be set together')
-  }
+  assertRoutePair(config, 'explain')
 }
 
-/** The route one explanation request runs on: the configured pair, otherwise the Session's current one. */
-function routeFor(ctx: Context, config: ExplainConfig, sessionId: SessionId): { provider: string; model: string } {
-  const route = config.provider !== undefined && config.model !== undefined
-    ? { provider: config.provider, model: config.model }
-    : ctx.get('sessions')?.get(sessionId)?.requestHeader()?.config
-  if (route === undefined || route.provider === '' || route.model === '') {
-    throw new Error('change-explain: no model route is available for this Session')
-  }
-  return route
-}
-
-/** One model answer on the Session's route, at its least supported reasoning effort so the output cap is not spent thinking. */
-async function complete(
-  ctx: Context, config: ExplainConfig, sessionId: SessionId, prompt: ExplainPrompt, signal: AbortSignal,
-): Promise<string> {
-  const llm = ctx.get('llm')
-  if (llm === undefined) throw new Error('change-explain: no model service is available')
-  const { provider, model } = routeFor(ctx, config, sessionId)
-  const call = await llm.prepareCall({ provider, model, maxTokens: config.maxOutputTokens }, signal, (controls, info) => {
-    const effort = info.reasoning?.efforts[0]?.id
-    return effort === undefined ? controls : { ...controls, reasoningEffort: effort }
-  })
-  const options: GenerateOptions = {
-    ...call.config, system: prompt.system, messages: [{ role: 'user', content: [{ type: 'text', text: prompt.user }] }], signal,
-  }
-  let answer = ''
-  for await (const chunk of call.stream(options)) {
-    if (chunk.type === 'text-delta') answer += chunk.text
-    else if (chunk.type === 'finish' && (chunk.reason.kind === 'error' || chunk.reason.kind === 'aborted')) {
-      throw new Error(chunk.reason.failure.message)
-    }
-  }
-  return answer
-}
-
-/** One file's explanation; 404 when the file has nothing to explain, 500 for a failure a later request may retry. */
-async function handleChangesExplain(explainer: ChangeExplainer, request: Request): Promise<Response> {
+/**
+ * Serve one listed file's model-written record from a change route: 404 when the file has nothing to describe,
+ * 500 for a failure a later request may retry.
+ * @param request - the authenticated GET request carrying the file's coordinates.
+ * @param produce - writes or waits for the record.
+ * @param label - names the record in failure text.
+ * @returns the response.
+ */
+export async function serveChangeRecord<T>(
+  request: Request,
+  produce: (sessionId: SessionId, seq: number, index: number, signal: AbortSignal) => Promise<T | undefined>,
+  label: string,
+): Promise<Response> {
   const coordinates = changedFileCoordinates(request)
   if (coordinates instanceof Response) return coordinates
   const { id, seq, index } = coordinates
   try {
-    const explanation = await explainer.explain(id, seq, index, request.signal)
-    if (explanation === undefined) return new Response('Change explanation unavailable.', { status: 404 })
-    return Response.json(explanation satisfies ChangesExplanation, { headers: { 'cache-control': 'no-store' } })
+    const record = await produce(id, seq, index, request.signal)
+    if (record === undefined) return new Response(`${label} unavailable.`, { status: 404 })
+    return Response.json(record, { headers: { 'cache-control': 'no-store' } })
   } catch (error: unknown) {
     request.signal.throwIfAborted()
-    return new Response(`Change explanation failed: ${error instanceof Error ? error.message : String(error)}`, { status: 500 })
+    return new Response(`${label} failed: ${error instanceof Error ? error.message : String(error)}`, { status: 500 })
+  }
+}
+
+/**
+ * Read the start of a Session workspace file as text.
+ * @param ctx - host context carrying the workspace files.
+ * @returns the reader; it answers undefined for a file that cannot be read as text.
+ */
+export function workspaceHead(ctx: Context): ExplainPorts['head'] {
+  return async (sessionId, cwd, path, lines, signal) => {
+    try {
+      return (await ctx.workspaceFiles.read({ sessionId, workspaceRoot: cwd }, path, { offset: 1, limit: lines }, signal)).text
+    } catch {
+      // A file that cannot be read as text is described from its comparison alone.
+      signal.throwIfAborted()
+      return undefined
+    }
   }
 }
 
@@ -111,16 +102,10 @@ export function registerChangeExplain(ctx: Context, config: ExplainConfig): void
   const explainer = new ChangeExplainer(config, {
     summary: (sessionId, seq) => ctx.workspaceChanges.summary(sessionId, seq),
     diff: (sessionId, seq, index, signal) => ctx.workspaceChanges.diff(sessionId, seq, index, signal),
-    head: async (sessionId, cwd, path, lines, signal) => {
-      try {
-        return (await ctx.workspaceFiles.read({ sessionId, workspaceRoot: cwd }, path, { offset: 1, limit: lines }, signal)).text
-      } catch {
-        // A file that cannot be read as text is explained from its comparison alone.
-        signal.throwIfAborted()
-        return undefined
-      }
-    },
-    complete: (sessionId, prompt, signal) => complete(ctx, config, sessionId, prompt, signal),
+    head: workspaceHead(ctx),
+    complete: (sessionId, prompt, signal) => completeOnRoute(
+      ctx, sessionRoute(ctx, config, sessionId, 'change-explain'), config.maxOutputTokens, prompt, signal, 'change-explain',
+    ),
     warn: (message) => { ctx.logger.warn(message) },
   })
   ctx.effect(() => () => { explainer.dispose() })
@@ -132,6 +117,8 @@ export function registerChangeExplain(ctx: Context, config: ExplainConfig): void
   ctx.on('session/disposed', (session) => { explainer.forget(session.id) })
   ctx.connection.fetch.register({
     path: CHANGES_EXPLAIN_PATH, methods: ['GET'], requestBody: 'buffered',
-    fetch: request => handleChangesExplain(explainer, request),
+    fetch: request => serveChangeRecord<ChangesExplanation>(
+      request, (sessionId, seq, index, signal) => explainer.explain(sessionId, seq, index, signal), 'Change explanation',
+    ),
   })
 }

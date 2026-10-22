@@ -11,7 +11,15 @@
     "src/presented.ts",
     "src/present-open.ts",
     "src/explain.ts",
-    "src/explain-host.ts"
+    "src/explain-host.ts",
+    "src/rewind-host.ts",
+    "src/model-gate.ts",
+    "src/change-records.ts",
+    "src/model-call.ts",
+    "src/codebase-docs.ts",
+    "src/codebase-docs-host.ts",
+    "src/judge.ts",
+    "src/judge-host.ts"
   ],
   "references": [
     {
@@ -55,6 +63,9 @@
     },
     {
       "path": "../../sandbox/sandbox-policy"
+    },
+    {
+      "path": "../../core/agent-default-model"
     }
   ]
 }

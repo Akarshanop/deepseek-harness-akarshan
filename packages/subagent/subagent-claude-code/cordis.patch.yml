@@ -7,3 +7,5 @@
         provider: claude-code
         toolName: subagent_claude_code
         maxDepth: provider-managed
+    - id: llm-claude-plan
+      name: '@deepseek-ai/dsh-subagent-claude-code/llm'

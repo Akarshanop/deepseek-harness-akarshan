@@ -75,6 +75,41 @@ export type WorkspaceFileDiff =
   /** A side larger than the plugin's `maxFileBytes`; no lines are served. */
   | { kind: 'oversized'; path: string; display: string }
 
+/** Why a rewind could not put one file back. */
+export type WorkspaceRewindSkipReason =
+  /** The file was larger than `maxFileBytes` before its first file-tool edit, so its content was not kept. */
+  | 'oversized'
+  /** The path is a nested repository or submodule, whose contents snapshots never hold. */
+  | 'submodule'
+  /** Writing or removing the file failed. */
+  | 'failed'
+
+/** What rewinding a Session to the start of one turn would put back, computed without touching the workspace. */
+export interface WorkspaceRewindPlan {
+  /** Display paths of the files the rewind would put back, in display order. */
+  files: string[]
+  /** Display paths of changed files whose earlier content was not kept. */
+  oversized: string[]
+  /**
+   * True when a turn at or after the target was not recorded by this Host process (it ran before
+   * a Host restart, its Session had no working directory, or its snapshot failed), so changes it
+   * made cannot be put back.
+   */
+  incomplete: boolean
+  /** True when a turn at or after the target ran without a git snapshot, so its shell-command edits were not recorded. */
+  shellUntracked: boolean
+}
+
+/** What a rewind put back. */
+export interface WorkspaceRewindResult {
+  /** Display paths written back or removed, in display order. */
+  restored: string[]
+  /** Files left as they are, in display order. */
+  skipped: Array<{ display: string; reason: WorkspaceRewindSkipReason }>
+  /** Same meaning as {@link WorkspaceRewindPlan.incomplete}. */
+  incomplete: boolean
+}
+
 /** Serves the summaries and file comparisons the recorder keeps for live Sessions. */
 export interface WorkspaceChanges {
   /**
@@ -94,6 +129,24 @@ export interface WorkspaceChanges {
    * @throws when a snapshot read fails for a live Session.
    */
   diff(sessionId: SessionId, seq: number, index: number, signal: AbortSignal): Promise<WorkspaceFileDiff | undefined>
+  /**
+   * List what {@link rewind} would put back for the same turn.
+   * @param sessionId - the Session whose turns changed the files.
+   * @param turn - the first turn whose changes would be undone.
+   * @returns the plan; a Session this Host never recorded yields an empty, incomplete plan.
+   */
+  rewindPlan(sessionId: SessionId, turn: number): WorkspaceRewindPlan
+  /**
+   * Put every file the recorded turns from `turn` onward changed back to its content at the start
+   * of the earliest of those turns that changed it: the snapshot side for paths git covers, the
+   * captured copy otherwise. A file that did not exist then is removed. Files the turns did not
+   * change stay untouched. The caller ensures no turn of the Session is running.
+   * @param sessionId - the Session whose turns changed the files.
+   * @param turn - the first turn whose changes are undone.
+   * @param signal - cancels the remaining git work.
+   * @returns what was put back and what was left; a Session this Host never recorded yields an empty, incomplete result.
+   */
+  rewind(sessionId: SessionId, turn: number, signal: AbortSignal): Promise<WorkspaceRewindResult>
 }
 
 declare module '@deepseek-ai/dsh-session/types' {

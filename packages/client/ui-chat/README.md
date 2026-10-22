@@ -73,6 +73,8 @@ Artifact extensions can subscribe to one Turn and Node kind through `ChatNodeSto
 
 The completed-turn action footer follows the recorded Turn end. Its action row starts 20px below preceding prose or extension content. Actions remain visible only on the latest Turn when its final visible content is a reply; other endings and historical Turns reveal actions on hover or keyboard focus. Devices without hover keep actions visible.
 
+A user prompt that opened a Turn adds edit and rewind actions beside copy; steering messages and local echoes do not. Edit replaces the bubble with an inline editor (Enter sends, Shift+Enter breaks the line, Escape cancels). Both actions open a confirmation that reads the optional `chatRewind` provider's preview: the files that would be put back, files too large to have been kept, turns that ran unrecorded or without a git snapshot, and a running turn, which blocks the rewind. Confirming restores the files, forks the Session at the preview's cut point before the prompt, and opens the fork with the original prompt in the composer (rewind) or sends the edited text (edit); the source Session stays unchanged. Files left as they are are listed before the fork opens. Without a `chatRewind` provider the confirmation reports that the preview is unavailable. Only the prompt text carries over; its attachments do not.
+
 -----
 
 <a id="turn-process-folding"></a>

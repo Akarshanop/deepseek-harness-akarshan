@@ -103,6 +103,8 @@ describe('product-provider public Loader composition', () => {
         },
       ],
       jobTools: ['job_kill', 'job_list', 'job_output'],
+      claudePlanRoute: { id: 'claude-plan', name: 'Claude (your Claude plan)' },
+      claudePlanModels: ['opus', 'sonnet', 'haiku'],
       starts: 0,
     })
   }, PRODUCTION_PROFILE_TEST_TIMEOUT_MS)

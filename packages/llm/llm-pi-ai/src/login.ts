@@ -14,26 +14,20 @@ import { isCredentialKeySegment } from '@deepseek-ai/dsh-credentials'
 import { catalogProvider, catalogProviderIds } from './catalog.ts'
 import { recordKeyFor } from './auth.ts'
 import type { PiAiAuthInjection } from './adapter.ts'
+import { CHATGPT_PROVIDER, signInWithChatGpt, type ChatGptRegistrationStore } from './chatgpt.ts'
 import { createModels } from './models.ts'
 import { SUBSCRIPTION_OAUTH_WITHHELD } from './subscription.ts'
 
 /**
- * Catalog providers whose OAuth login this adapter does not offer. pi-ai's Sign
- * in with ChatGPT (`openai`) identifies the installation to OpenAI with a
- * stable UUID that the app supplies through `LoginOptions.getDeviceId`, and it
- * refuses to start without one. The harness keeps no installation ID meant for
- * a third-party account sign-in, so the route signs in with an API key.
- */
-const UNSERVED_OAUTH: ReadonlySet<string> = new Set(['openai'])
-
-/**
  * The login methods one catalog provider offers.
  *
- * A method appears only when pi-ai can actually run it: `oauth` carries a
- * `login` that runs without app-supplied login options except for the
- * providers in {@link UNSERVED_OAUTH}, and never for the providers in
+ * A method appears only when it can actually run: `oauth` carries a `login`
+ * that runs without app-supplied login options, never for the providers in
  * {@link SUBSCRIPTION_OAUTH_WITHHELD}, whose consumer-subscription sign-ins a
- * third-party application may not collect. An api-key method has a login only
+ * third-party application may not collect. The `openai` OAuth method is
+ * OpenAI's Sign in with ChatGPT for open-source apps, run by this adapter's
+ * own flow ({@link signInWithChatGpt}) under this app's name rather than by
+ * pi-ai's, which registers every app as Pi. An api-key method has a login only
  * when the provider collects its key interactively — which every installed one
  * currently does, so a key is typed into pi-ai's own prompt rather than into
  * the settings form.
@@ -42,10 +36,12 @@ const UNSERVED_OAUTH: ReadonlySet<string> = new Set(['openai'])
  */
 function loginMethods(provider: Provider | undefined): AuthorizationMethod[] {
   const methods: AuthorizationMethod[] = []
-  const oauth = provider === undefined || UNSERVED_OAUTH.has(provider.id) || SUBSCRIPTION_OAUTH_WITHHELD.has(provider.id)
+  const oauth = provider === undefined || SUBSCRIPTION_OAUTH_WITHHELD.has(provider.id)
     ? undefined
     : provider.auth.oauth
-  if (oauth !== undefined) methods.push({ id: 'oauth', label: oauth.loginLabel ?? oauth.name })
+  if (oauth !== undefined) {
+    methods.push({ id: 'oauth', label: provider?.id === CHATGPT_PROVIDER ? 'Continue with ChatGPT' : oauth.loginLabel ?? oauth.name })
+  }
   const apiKey = provider?.auth.apiKey
   if (apiKey?.login !== undefined) methods.push({ id: 'api-key', label: apiKey.name })
   return methods
@@ -125,6 +121,27 @@ function restate(prompt: AuthPrompt): AuthorizationPrompt {
 }
 
 /**
+ * The provider a login collection holds: the catalog provider itself, except
+ * that `openai`'s OAuth login runs this adapter's Sign in with ChatGPT flow.
+ * Refresh and request auth stay pi-ai's, so the credential the flow returns is
+ * served exactly as one pi-ai's own login would have produced.
+ * @param provider - the installed catalog provider.
+ * @param registration - this host's retained Sign in with ChatGPT registration.
+ * @returns the provider to log in with.
+ */
+function loginProvider(provider: Provider, registration: ChatGptRegistrationStore): Provider {
+  const oauth = provider.auth.oauth
+  if (provider.id !== CHATGPT_PROVIDER || oauth === undefined) return provider
+  return {
+    ...provider,
+    auth: {
+      ...provider.auth,
+      oauth: { ...oauth, login: interaction => signInWithChatGpt(interaction, { registration }) },
+    },
+  }
+}
+
+/**
  * Register one authorization flow per installed provider that ships a login.
  *
  * Registration is unconditional on configuration: a provider has to be signed
@@ -132,8 +149,9 @@ function restate(prompt: AuthPrompt): AuthorizationPrompt {
  * moment the plugin mounts rather than appearing once a profile does.
  * @param ctx - the plugin context carrying `ctx.authorization`.
  * @param auth - the injectables every collection here is built with.
+ * @param registration - this host's retained Sign in with ChatGPT registration.
  */
-export function registerPiAiFlows(ctx: Context, auth: PiAiAuthInjection): void {
+export function registerPiAiFlows(ctx: Context, auth: PiAiAuthInjection, registration: ChatGptRegistrationStore): void {
   for (const providerId of catalogProviderIds()) {
     const provider = catalogProvider(providerId)
     const [first, ...rest] = loginMethods(provider)
@@ -161,7 +179,7 @@ export function registerPiAiFlows(ctx: Context, auth: PiAiAuthInjection): void {
         // into: login is not serving requests, and the credential it produces
         // lands in the shared store either way.
         const models = createModels(auth)
-        models.setProvider(provider)
+        models.setProvider(loginProvider(provider, registration))
         // Total over the two ids declared above, and the seam only ever hands
         // back one a flow declared.
         const type: AuthType = session.method === 'oauth' ? 'oauth' : 'api_key'

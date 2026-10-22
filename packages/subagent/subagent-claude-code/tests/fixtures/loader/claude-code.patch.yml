@@ -16,6 +16,9 @@
     - id: subagent-codex
       name: '@deepseek-ai/dsh-subagent-codex'
 
+    - id: llm-claude-plan
+      name: '@deepseek-ai/dsh-subagent-claude-code/llm'
+
     - id: subagent-claude-primary
       name: '@deepseek-ai/dsh-subagent-claude-code'
       config:

@@ -1,22 +1,25 @@
 /**
  * The review tab: one turn's changed files behind a file selector, with the
  * selected file's turn-start and turn-end comparison drawn unified or side by
- * side, wrapped or scrolling, beside the model's explanation of the file, and
- * controls to open the file itself.
+ * side, wrapped or scrolling, beside the model's judgment of the change and
+ * its explanation of the file, and controls to open the file itself.
  */
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
   IconChevronDownOutlineRegular, IconCompareSplitOutlineRegular, IconInspectOutlineRegular,
-  IconNowrapFillRegular, IconSparkleRegular, IconWrapFillRegular, Menu, PathLabel, Tooltip,
+  IconNowrapFillRegular, IconShieldOutlineRegular, IconSparkleRegular, IconWrapFillRegular, Menu, PathLabel, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import { fileAddressFor } from '@deepseek-ai/dsh-util-workspace-path'
 import type { WorkspaceChangedFile } from '@deepseek-ai/dsh-workspace-changes/types'
-import { changedFileUrl, changesDiffUrl, changesExplainUrl, changesSummaryUrl, parseChangesReviewAddress } from '../changes.ts'
+import {
+  changedFileUrl, changesDiffUrl, changesExplainUrl, changesJudgeUrl, changesSummaryUrl, parseChangesReviewAddress,
+} from '../changes.ts'
 import type { ChangesDiffStore } from './changes-diff.ts'
 import type { ChangesExplainStore } from './changes-explain.ts'
+import type { ChangesJudgeStore } from './changes-judge.ts'
 import type { ChangesSummaryStore } from './changes-summary.ts'
 import type { PresentedOpenController } from './present-open.ts'
 import type { ChangesReviewParams } from './review-definition.ts'
@@ -24,23 +27,26 @@ import type { createReviewStore } from './review-store.ts'
 import type { NS } from './locales.ts'
 import { ExplainPanel } from './ExplainPanel.tsx'
 import { FileDiff } from './FileDiff.tsx'
+import { JudgePanel } from './JudgePanel.tsx'
 import diffCss from './FileDiff.module.css'
 import css from './ReviewTab.module.css'
 
 const GROUPED = new Intl.NumberFormat('en-US')
 
-/** Summary, comparison, and explanation reads, desktop metadata, and the native open supplied by the plugin. */
+/** Summary, comparison, explanation, and judgment reads, desktop metadata, and the native open supplied by the plugin. */
 export interface ReviewInjected {
   hooks: {
     changesSummary: ObservableSnapshot<ReturnType<ChangesSummaryStore['state']['getSnapshot']>>
     changesDiff: ObservableSnapshot<ReturnType<ChangesDiffStore['state']['getSnapshot']>>
     changesExplain: ObservableSnapshot<ReturnType<ChangesExplainStore['state']['getSnapshot']>>
+    changesJudge: ObservableSnapshot<ReturnType<ChangesJudgeStore['state']['getSnapshot']>>
     presentedOpen: ObservableSnapshot<ReturnType<PresentedOpenController['state']['getSnapshot']>>
     presentedHost: ObservableSnapshot<ReturnType<PresentedOpenController['host']['getSnapshot']>>
   }
   loadChangesSummary: ChangesSummaryStore['load']
   loadChangesDiff: ChangesDiffStore['load']
   loadChangesExplain: ChangesExplainStore['load']
+  loadChangesJudge: ChangesJudgeStore['load']
   reloadPresentedHost: PresentedOpenController['loadHost']
   openChanged: PresentedOpenController['openChanged']
 }
@@ -71,8 +77,9 @@ function Counts({ file, t }: { file: WorkspaceChangedFile } & PropsLocale<typeof
  * @returns the selected file's comparison behind the file selector, or the state that stands in for it.
  */
 export function ReviewTab({
-  useTabInfo, useSessions, useStore, actions, useChangesSummary, useChangesDiff, useChangesExplain, usePresentedOpen, usePresentedHost,
-  loadChangesSummary, loadChangesDiff, loadChangesExplain, reloadPresentedHost, openChanged, t, renderSlot,
+  useTabInfo, useSessions, useStore, actions, useChangesSummary, useChangesDiff, useChangesExplain, useChangesJudge, usePresentedOpen,
+  usePresentedHost, loadChangesSummary, loadChangesDiff, loadChangesExplain, loadChangesJudge, reloadPresentedHost, openChanged, t,
+  renderSlot,
 }: ReviewTabProps): ReactNode {
   const { tab } = useTabInfo()
   const { navigation, signal } = tab
@@ -118,6 +125,12 @@ export function ReviewTab({
   useEffect(() => {
     if (reading && explainState === undefined) void loadChangesExplain(sessionId, seq, index)
   }, [reading, explainState, sessionId, seq, index, loadChangesExplain])
+  const judgeState = useChangesJudge(value => explainable ? value[changesJudgeUrl(sessionId, seq, index)] : undefined)
+  const showJudge = explainable && state?.judge !== false && judgeState !== 'missing'
+  const judging = explainable && state?.judge === true
+  useEffect(() => {
+    if (judging && judgeState === undefined) void loadChangesJudge(sessionId, seq, index)
+  }, [judging, judgeState, sessionId, seq, index, loadChangesJudge])
   const phase = usePresentedOpen(value => file === undefined ? undefined : value[changedFileUrl(sessionId, seq, index)])
   const [menuOpen, setMenuOpen] = useState(false)
   const split = state?.split === true
@@ -156,6 +169,12 @@ export function ReviewTab({
               {wrap ? <IconNowrapFillRegular /> : <IconWrapFillRegular />}
             </button>
           </Tooltip>
+          {explainable && judgeState !== 'missing' && <Tooltip label={t(showJudge ? 'review.judgeHide' : 'review.judgeShow')} side="bottom" delayMs={500}>
+            <button type="button" className={css.tool} aria-pressed={showJudge} aria-label={t('review.judgeAria')} data-review-tool="judge"
+              onClick={() => { actions.toggledJudge(tab.id) }}>
+              <IconShieldOutlineRegular />
+            </button>
+          </Tooltip>}
           {explainable && explainState !== 'missing' && <Tooltip label={t(showExplain ? 'review.explainHide' : 'review.explainShow')} side="bottom" delayMs={500}>
             <button type="button" className={css.tool} aria-pressed={showExplain} aria-label={t('review.explainAria')} data-review-tool="explain"
               onClick={() => { actions.toggledExplain(tab.id) }}>
@@ -181,8 +200,12 @@ export function ReviewTab({
             <FileDiff state={diffState} split={split} wrap={wrap} t={t}
               retry={() => { void loadChangesDiff(sessionId, seq, index) }} />
           </div>
-          {showExplain && <ExplainPanel state={explainState} t={t}
-            retry={() => { void loadChangesExplain(sessionId, seq, index) }} />}
+          {(showJudge || showExplain) && <div className={css.panels}>
+            {showJudge && <JudgePanel state={judgeState} t={t}
+              retry={() => { void loadChangesJudge(sessionId, seq, index) }} />}
+            {showExplain && <ExplainPanel state={explainState} t={t}
+              retry={() => { void loadChangesExplain(sessionId, seq, index) }} />}
+          </div>}
         </div>
       </div>}
     </div>

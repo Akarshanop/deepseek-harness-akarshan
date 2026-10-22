@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`@deepseek-ai/dsh-llm-pi-ai` 通过一份配置把模型请求路由到多个 pi-ai 提供方、OpenAI 兼容网关或自托管服务器。已安装的 pi-ai 提供方会提供端点、协议和模型目录默认值；自定义路由可以直接声明这些值，无需修改代码。profile 与凭据按请求解析，因此设置变更会在下一个请求生效，无需重启。受支持的提供方可以使用已存储的 OAuth 或交互式密钥登录，并通过跨进程锁刷新凭据，但本包不提供 Claude Pro/Max 与 ChatGPT Codex 订阅登录。本包可以在没有路由时启动，并在用户设置添加路由后将其激活。
+`@deepseek-ai/dsh-llm-pi-ai` 通过一份配置把模型请求路由到多个 pi-ai 提供方、OpenAI 兼容网关或自托管服务器。已安装的 pi-ai 提供方会提供端点、协议和模型目录默认值；自定义路由可以直接声明这些值，无需修改代码。profile 与凭据按请求解析，因此设置变更会在下一个请求生效，无需重启。受支持的提供方可以使用已存储的 OAuth 或交互式密钥登录，并通过跨进程锁刷新凭据，其中包括让 `openai` 路由使用用户 ChatGPT 订阅的 OpenAI Sign in with ChatGPT；Claude Pro/Max 与 ChatGPT Codex 订阅登录不提供。本包可以在没有路由时启动，并在用户设置添加路由后将其激活。
 
 ## 目录
 
@@ -94,6 +94,8 @@ kind: "package-reference"
 
 pi-ai 提供登录的提供方可以通过 harness 授权 seam 登录：流程提供 OAuth 或交互式密钥提示（密钥键入 pi-ai 自己的登录提示，而非设置表单），得到的凭据存储在 harness 凭据存储的 `llm-pi-ai/<provider id>` 记录中。存储的登录在其路由的 `apiKeyEnv` 覆盖之下完成认证，并在存储的跨进程锁下自行刷新；退出登录即删除存储记录。落在记录文法之外——小写连字符标识符——的手工声明路由键无法登录，因为对它的记录写入会以 `LlmError('UNSTORABLE_PROVIDER_ID')` 拒绝；这类路由改用 `apiKeyEnv` 或提供方 ambient 设置认证。
 
+`openai` 的 OAuth 方法是 OpenAI 面向开源应用的 [Sign in with ChatGPT](https://developers.openai.com/siwc/token-sharing-open-source)，由本包自己的流程（[`src/chatgpt.ts`](src/chatgpt.ts)）执行，而不是 pi-ai 的流程，因为后者把每个应用都注册为 Pi。首次登录以 `dynamic_agent_client`、名称 `DeepSeek Harness` 与一个在打开浏览器前已存储的 `urn:uuid:` 主机 id 注册本主机；之后的登录复用签发的 client id、同一主机 id，并以账号邮箱作为 `login_hint`。流程监听 `127.0.0.1:1455/auth/callback`（该端口被占用时改用其他空闲端口），校验 `state`，以 PKCE 交换授权码，按 OpenAI 公布的密钥验证 ID token 的 RS256 签名及 issuer、audience、过期时间与 nonce，并拒绝不含 `chatgpt.tokens.use.direct` 的授权。令牌存为 `llm-pi-ai/openai` grant；主机 id、签发的 client id、账号身份以及账号可展示的模型 slug（`GET /v1/models`）存为 `llm-pi-ai/openai-chatgpt-registration` 记录，退出登录后仍保留。pi-ai 负责刷新该 grant，并向 `api.openai.com/v1` 发送不含该路由拒绝字段（`max_output_tokens`、`temperature`、缓存保留）的 Responses 请求。只要 `openai` profile 未指定 `apiKeyEnv`，其模型列表就收窄为订阅包含的模型。在有 web 连接提供 Models 页面时，Host 路由 `/api/llm-pi-ai.chatgpt` 报告登录状态（从不返回令牌），并发起、取消或退出登录；退出登录会先在 OpenAI 撤销 refresh token，再删除 grant。
+
 有两种登录被保留不提供，因为 Anthropic 不允许第三方应用收集或转发 Claude Pro/Max 凭据，OpenAI 也未记录第三方可使用 Codex 客户端 ChatGPT 令牌的方式。`anthropic` 流程只提供 API 密钥方法，`openai-codex` 没有流程。这两个提供方已存储的 OAuth grant 会被忽略并输出点名该提供方的警告，含有 `sk-ant-oat` 的密钥永远不会被使用，`openai-codex` 路由上的 `apiKeyEnv` 会被拒绝。请在对应路由上使用 API 密钥，或委派给通过各自产品登录的 Claude Code 或 Codex 子代理。
 
 ### 解析模型目录
@@ -147,6 +149,8 @@ Config 更新严格验证发生变化的 provider。初始加载将已存储的�
 | [`src/index.ts`](src/index.ts) | Config 快照、目录及路由注册 |
 | [`src/auth.ts`](src/auth.ts) | 覆盖 harness 凭据平面的凭据存储与 ambient auth context |
 | [`src/login.ts`](src/login.ts) | 面向提供登录的已安装提供方的授权流程 |
+| [`src/chatgpt.ts`](src/chatgpt.ts) | Sign in with ChatGPT：注册、回调、令牌交换、ID token 校验、订阅模型与撤销 |
+| [`src/chatgpt-routes.ts`](src/chatgpt-routes.ts) | Models 页面用于 ChatGPT 登录与退出登录的 Host 路由 |
 | [`src/subscription.ts`](src/subscription.ts) | 阻止订阅凭据到达 pi-ai 的规则 |
 | [`src/config.ts`](src/config.ts) | Profile schema、解析与可服务性校验 |
 | [`src/catalog.ts`](src/catalog.ts) | 已安装目录集成与漂移门禁 |
@@ -224,7 +228,7 @@ pi-ai 事件变成 harness 的推理、文本、工具调用、用量与 finish 
 - **`maxRequestImageBytes` 只计算 base64 图片载荷**，文本、工具、描述符与 JSON 结构在该上限之外，因此它必须留有余量地低于网关请求体上限。
 - **不提供订阅登录**——Claude Pro/Max 与 ChatGPT Codex 凭据授权的是厂商自己的客户端，因此 `anthropic` 的 OAuth 登录和 `openai-codex` 流程被保留不提供；`github-copilot`、`kimi-coding`、`meta`、`xai`、`openrouter` 与 `radius` 的 OAuth 登录保持不变，其条款未在此审查。
 - **登录只存在于发起它的进程中**——授权尝试不持久，因此登录中途刷新页面会放弃它，用户需要重新开始。退出登录是对已存储记录执行 `deleteRecord`，只在本地忘记它，不会告知签发方。
-- **OpenAI 不提供 ChatGPT 登录**——pi-ai 的 Sign in with ChatGPT 用应用提供的稳定 UUID 向 OpenAI 标识安装实例，而 harness 没有用于第三方账号登录的安装 ID；`openai` 路由改用 API key 登录。
+- **每台主机一个 ChatGPT 账号**——注册只保存一个签发的 client id；登录与已注册账号不同的 ChatGPT 账号会被拒绝，切换账号需要新的注册，本包暂不提供。浏览器回调只能到达与 Host 位于同一台机器上的浏览器。
 - **提供方原生发现经本插件的 ambient context 回答**——不点名凭据的路由交由目录提供方自身解析，它会询问环境值（`AZURE_OPENAI_API_KEY`、`AWS_PROFILE` 及各提供方自有集合）与本地凭据文件。两个问题都在这里得到回答：凭据 seam 先于进程环境被查询，文件存在性则针对宿主进程的文件系统以 `~` 展开后检查。它做不到的是*读取*凭据文件内容——自行解析 `~/.aws/credentials` 的提供方会直接读取，不经该 seam。
 - **重置恢复继承配置**——重置下层 profile 提供的路由会恢复该路由。
 - **完整替换 Config 可以移除继承的字典条目**——字段重置则恢复其继承值。

@@ -4,10 +4,11 @@
  * shared by every request and every `workspace/changes` event that carries the
  * same comparison, and kept only while its Session lives.
  */
-import { createHash } from 'node:crypto'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import type { WorkspaceChangesSummary, WorkspaceFileDiff } from '@deepseek-ai/dsh-workspace-changes/types'
+import type { WorkspaceFileDiff } from '@deepseek-ai/dsh-workspace-changes/types'
 import type { ChangesExplanation } from './changes.ts'
+import { ChangeRecords, comparisonKey, type ChangeSourcePorts, type RecordBucket } from './change-records.ts'
+import { cut, Gate, THINK_BLOCK, type ModelPrompt } from './model-gate.ts'
 
 /** Bounds and wording of the explanation requests; every field is a deployment choice. */
 export interface ExplainConfig {
@@ -34,39 +35,10 @@ export interface ExplainConfig {
 }
 
 /** The system and user text of one model request. */
-export interface ExplainPrompt {
-  system: string
-  user: string
-}
+export type ExplainPrompt = ModelPrompt
 
 /** What the explainer reads and asks for, supplied by the plugin so the explainer itself holds no service. */
-export interface ExplainPorts {
-  /**
-   * The summary one `workspace/changes` event announced.
-   * @param sessionId - the Session that appended the event.
-   * @param seq - the event's sequence number.
-   * @returns the summary, or undefined once the Host no longer holds it.
-   */
-  summary(sessionId: SessionId, seq: number): WorkspaceChangesSummary | undefined
-  /**
-   * One listed file's comparison.
-   * @param sessionId - the Session that appended the event.
-   * @param seq - the event's sequence number.
-   * @param index - the file's index in the summary.
-   * @param signal - cancels the read.
-   * @returns the comparison, or undefined when the Host no longer serves it.
-   */
-  diff(sessionId: SessionId, seq: number, index: number, signal: AbortSignal): Promise<WorkspaceFileDiff | undefined>
-  /**
-   * The start of a file as it stands now.
-   * @param sessionId - the Session whose workspace holds the file.
-   * @param cwd - the Session working directory.
-   * @param path - the listed file's `path`.
-   * @param lines - lines to read from the start.
-   * @param signal - cancels the read.
-   * @returns the text, or undefined when the file cannot be read as text.
-   */
-  head(sessionId: SessionId, cwd: string, path: string, lines: number, signal: AbortSignal): Promise<string | undefined>
+export interface ExplainPorts extends ChangeSourcePorts {
   /**
    * One model answer.
    * @param sessionId - the Session whose route answers.
@@ -77,7 +49,7 @@ export interface ExplainPorts {
    */
   complete(sessionId: SessionId, prompt: ExplainPrompt, signal: AbortSignal): Promise<string>
   /**
-   * Report an eager explanation that failed; a later request tries again.
+   * Report an eager request or a supporting read that failed; a later request tries again.
    * @param message - the report.
    */
   warn(message: string): void
@@ -110,12 +82,12 @@ export function explainSystemPrompt(language: string): string {
   ].join('\n')
 }
 
-function cut(text: string, limit: number, marker: string): string {
-  return text.length <= limit ? text : `${text.slice(0, limit)}${marker}`
-}
-
-/** The comparison as unified-diff text, with each hunk's header. */
-function diffText(diff: Extract<WorkspaceFileDiff, { kind: 'text' }>): string {
+/**
+ * The comparison as unified-diff text, with each hunk's header.
+ * @param diff - a text comparison.
+ * @returns the hunks as unified-diff text.
+ */
+export function diffText(diff: Extract<WorkspaceFileDiff, { kind: 'text' }>): string {
   return diff.hunks
     .map(hunk => `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@\n${hunk.lines.join('\n')}`)
     .join('\n')
@@ -148,7 +120,6 @@ export function buildExplainPrompt(
   return { system: explainSystemPrompt(config.language), user: sections.join('\n\n') }
 }
 
-const THINK_BLOCK = /<think>[\s\S]*?<\/think>/gi
 const FENCE_LINE = /^\s*```.*$/gm
 /** A label with the Markdown emphasis or list marker a model may wrap around it. */
 const PURPOSE_LABEL = /^[\s*_#>-]*purpose[\s*_]*:[\s*_]*/i
@@ -179,79 +150,14 @@ export function parseExplanation(answer: string): ChangesExplanation {
   return { purpose, changes }
 }
 
-/** The reason a signal aborted with, as an Error. */
-function abortReason(signal: AbortSignal): Error {
-  return signal.reason instanceof Error ? signal.reason : new Error(String(signal.reason))
-}
-
-/** Limits simultaneous model requests; a waiter leaves the queue when its signal aborts. */
-class Gate {
-  private active = 0
-  private readonly queue: Array<() => void> = []
-
-  constructor(private readonly limit: number) {}
-
-  async run<T>(signal: AbortSignal, task: () => Promise<T>): Promise<T> {
-    await this.enter(signal)
-    try {
-      return await task()
-    } finally {
-      this.leave()
-    }
-  }
-
-  private enter(signal: AbortSignal): Promise<void> {
-    signal.throwIfAborted()
-    if (this.active < this.limit) {
-      this.active += 1
-      return Promise.resolve()
-    }
-    return new Promise<void>((resolve, reject) => {
-      // A granted waiter inherits the departing request's slot, so `active` stays counted.
-      const grant = (): void => {
-        signal.removeEventListener('abort', abandon)
-        resolve()
-      }
-      const abandon = (): void => {
-        this.queue.splice(this.queue.indexOf(grant), 1)
-        reject(abortReason(signal))
-      }
-      signal.addEventListener('abort', abandon, { once: true })
-      this.queue.push(grant)
-    })
-  }
-
-  private leave(): void {
-    const next = this.queue.shift()
-    if (next === undefined) this.active -= 1
-    else next()
-  }
-}
-
-/** Resolve when `promise` settles, or reject when `signal` aborts first; the promise itself keeps running. */
-function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  signal.throwIfAborted()
-  return new Promise<T>((resolve, reject) => {
-    const abandon = (): void => { reject(abortReason(signal)) }
-    signal.addEventListener('abort', abandon, { once: true })
-    promise.then(resolve, reject).finally(() => { signal.removeEventListener('abort', abandon) })
-  })
-}
-
-/** One Session's explanations and the cancellation of the requests that write them. */
-interface SessionBucket {
-  readonly lifetime: AbortController
-  readonly entries: Map<string, Promise<ChangesExplanation>>
-}
-
 /** Writes and keeps the explanations of the files a Session's turns changed. */
 export class ChangeExplainer {
-  private readonly lifetime = new AbortController()
   private readonly gate: Gate
-  private readonly buckets = new Map<SessionId, SessionBucket>()
+  private readonly records: ChangeRecords<ChangesExplanation, RecordBucket<ChangesExplanation>>
 
   constructor(private readonly config: ExplainConfig, private readonly ports: ExplainPorts) {
     this.gate = new Gate(config.concurrency)
+    this.records = new ChangeRecords(ports, () => ({ lifetime: new AbortController(), entries: new Map() }))
   }
 
   /**
@@ -267,22 +173,11 @@ export class ChangeExplainer {
    */
   async explain(sessionId: SessionId, seq: number, index: number, signal: AbortSignal): Promise<ChangesExplanation | undefined> {
     if (!this.config.enabled) return undefined
-    const summary = this.ports.summary(sessionId, seq)
-    const file = summary?.files[index]
-    if (summary === undefined || file === undefined || file.binary === true || file.oversized === true) return undefined
-    const diff = await this.ports.diff(sessionId, seq, index, signal)
-    if (diff?.kind !== 'text' || diff.hunks.length === 0) return undefined
-    const key = createHash('sha256')
-      .update(`${file.path}\0${diff.before}\0${diff.after}\0${JSON.stringify(diff.hunks)}`).digest('hex')
-    const bucket = this.bucket(sessionId)
-    let written = bucket.entries.get(key)
-    if (written === undefined) {
-      const started = this.write(sessionId, summary.cwd, file.path, file.display, diff, bucket)
-      bucket.entries.set(key, started)
-      started.catch(() => { bucket.entries.delete(key) })
-      written = started
-    }
-    return untilAborted(written, signal)
+    const target = await this.records.target(sessionId, seq, index, signal)
+    if (target === undefined) return undefined
+    const { summary, file, diff } = target
+    const key = comparisonKey(file.path, diff.before, diff.after, diff.hunks)
+    return this.records.shared(sessionId, key, bucket => this.write(sessionId, summary.cwd, file.path, file.display, diff, bucket), signal)
   }
 
   /**
@@ -293,9 +188,10 @@ export class ChangeExplainer {
    */
   prefetch(sessionId: SessionId, seq: number): void {
     const files = this.ports.summary(sessionId, seq)?.files ?? []
+    const { signal } = this.records.lifetime
     for (let index = 0; index < Math.min(files.length, this.config.eagerFiles); index += 1) {
-      this.explain(sessionId, seq, index, this.lifetime.signal).catch((error: unknown) => {
-        if (!this.lifetime.signal.aborted) this.ports.warn(`change-explain: ${String(error)}`)
+      this.explain(sessionId, seq, index, signal).catch((error: unknown) => {
+        if (!signal.aborted) this.ports.warn(`change-explain: ${String(error)}`)
       })
     }
   }
@@ -305,30 +201,19 @@ export class ChangeExplainer {
    * @param sessionId - the disposed Session.
    */
   forget(sessionId: SessionId): void {
-    this.buckets.get(sessionId)?.lifetime.abort()
-    this.buckets.delete(sessionId)
+    this.records.forget(sessionId)
   }
 
   /** Cancel every request in flight; later calls write nothing new. */
   dispose(): void {
-    this.lifetime.abort()
-    for (const sessionId of [...this.buckets.keys()]) this.forget(sessionId)
-  }
-
-  private bucket(sessionId: SessionId): SessionBucket {
-    let bucket = this.buckets.get(sessionId)
-    if (bucket === undefined) {
-      bucket = { lifetime: new AbortController(), entries: new Map() }
-      this.buckets.set(sessionId, bucket)
-    }
-    return bucket
+    this.records.dispose()
   }
 
   private write(
     sessionId: SessionId, cwd: string, path: string, display: string,
-    diff: Extract<WorkspaceFileDiff, { kind: 'text' }>, bucket: SessionBucket,
+    diff: Extract<WorkspaceFileDiff, { kind: 'text' }>, bucket: RecordBucket<ChangesExplanation>,
   ): Promise<ChangesExplanation> {
-    const signal = AbortSignal.any([this.lifetime.signal, bucket.lifetime.signal, AbortSignal.timeout(this.config.timeoutMs)])
+    const signal = AbortSignal.any([this.records.lifetime.signal, bucket.lifetime.signal, AbortSignal.timeout(this.config.timeoutMs)])
     return this.gate.run(signal, async () => {
       const head = diff.before && diff.after
         ? await this.ports.head(sessionId, cwd, path, this.config.contextLines, signal)

@@ -1,0 +1,87 @@
+/* Edit and rewind controls of a sent user prompt. */
+
+/* The refresh glyph mirrored to turn counter-clockwise, reading as "go back". */
+.rewindIcon {
+  transform: scaleX(-1);
+}
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(calc(var(--dsh-chat-content-width, 748px) * 0.702), 82%);
+}
+
+.field {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px 16px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-xl);
+  background: var(--dsw-specific-bubble);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: var(--dsh-content-font-size, 14px);
+  line-height: calc(22px + var(--dsh-content-font-delta, 0px));
+  resize: vertical;
+}
+
+.field:focus-visible {
+  outline: none;
+  border-color: var(--dsw-alias-border-l3);
+}
+
+.editorActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.button {
+  min-width: 72px;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.note,
+.warning {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.warning {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.files {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 180px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.file,
+.more {
+  overflow: hidden;
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.more {
+  font-family: inherit;
+  color: var(--dsw-alias-label-tertiary);
+}

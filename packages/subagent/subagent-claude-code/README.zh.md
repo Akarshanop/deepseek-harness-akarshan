@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 ## 概述
 
-当委派任务应在父工作区中以全新、无人值守的 Claude Code 会话运行时，安装这个 Profile Bundle。每次运行接受一个自包含文本任务，并返回最终答案或安全的失败诊断；推理、工具通信、stderr、用量信息和工作区差异不会进入父 Session。Claude 原生设置与身份验证继续是权威来源，而 Profile 配置选择模型、环境和 `permissionMode`。针对平台锁定的运行时仅在需要时启动，并且绝不会回退到宿主 `claude` 可执行文件。当隔离和真实 Claude Code 行为比续接或提示更重要时，选择本包。
+安装这个 Profile Bundle，即可通过两种方式在 harness 中使用 Claude Code。作为模型，模型选择器中的 **Claude (your Claude plan)** 会在可续接的 Claude Code 会话中运行每个聊天轮次，该会话使用你自己的 Claude Pro 或 Max 登录。作为委派，`subagent_claude_code` 工具在全新的无人值守会话中运行一个自包含任务，只返回最终答案或安全诊断。Claude 原生设置与身份验证继续是权威来源，针对平台锁定的运行时仅在需要时启动，且不会回退到宿主 `claude` 可执行文件。
 
 ## 目录
 
@@ -75,6 +75,25 @@ Bundle 将 `tool-subagent-claude-code` 作为 Host 条目插入，因此 `subage
 
 工具接受任务后返回 child id；任务完成后向父 agent 发送结果通知。外部 activation 只执行一次，不支持追加输入或恢复对话。
 
+### 把你的 Claude 套餐当作模型使用
+
+该 bundle 还会注册模型路由 `claude-plan`，在模型选择器中显示为 **Claude (your Claude plan)**，提供 Claude Opus、Sonnet 和 Haiku。选择其中之一后，每个聊天轮次都会发送到一个未修改的 Claude Code 会话，该会话使用你自己的 Claude Pro 或 Max 登录，因此用量计入你的套餐而不是 API 账号。在终端中运行 `claude` 并使用 `/login` 登录一次即可；harness 从不读取、存储或转发该登录。
+
+每个回答都会把它的 Claude Code 会话 id 存为 replay state，因此下一轮会续接同一个 Claude 会话，只发送新消息。在其他模型上开始的对话会以对话记录形式发送一次。Claude Code 在会话的工作目录中运行它自己的工具。默认的 `permissionMode: ask` 会让每个 Claude 权限请求出现在 harness 审批面板中；`acceptEdits`、`plan` 和 `bypassPermissions` 会直接传给 Claude Code。Claude 会流式输出推理和回答，它运行的每个工具都会以一条点名该工具的推理行出现。
+
+如果 Claude Code 报告的 `apiKeySource` 不是 `none`，即运行会计费 API 密钥，则除非设置了 `allowApiKey`，否则会以 `INVALID_CREDENTIAL` 拒绝。未登录的 Claude 以 `AUTH` 失败并附带登录说明，达到套餐额度则以 `QUOTA` 失败。该路由从不重试，因为重试的轮次可能重复 Claude 已经执行过的操作。会话标题和压缩摘要以不使用工具的单次回答运行。
+
+在有 web 连接提供 Models 设置页面时，该路由还会以 Claude Code 自己的登录状态响应 `GET /api/subagent-claude-code.plan`（[`src/plan-status.ts`](src/plan-status.ts)）：它以路由的环境把 Agent SDK 的平台二进制作为 `claude auth status --json` 运行，并报告 Claude Code 是否已登录、其 `authMethod`、套餐（`subscriptionType`）、账号邮箱、轮次是否会使用套餐（`authMethod` 为 `claude.ai`）以及路由的模型。Models 页面将其渲染为 **使用你的 Claude 订阅** 卡片。Anthropic 不允许第三方应用提供 Claude.ai 登录，也不允许收集、存储或中转 Claude 凭据，因此该路由不发起登录、不读取任何令牌，而是报告用户需在 Claude Code 中运行的命令（`claude auth login --claudeai`）。
+
+```yaml
+- id: llm-claude-plan
+  config:
+    permissionMode: acceptEdits
+    models:
+      - id: opus
+        name: Claude Opus
+```
+
 ### 你会得到什么
 
 完成通知包含 Claude Code 的最终答案，或停止原因与可选的安全诊断。父会话还独立保存外部任务的身份和完整终态结果；无需创建本地子 Session。产品推理、工具活动、原始 stderr 与工作区差异不会进入父会话。
@@ -110,6 +129,8 @@ Bundle 将 `tool-subagent-claude-code` 作为 Host 条目插入，因此 `subage
 | [`src/index.ts`](src/index.ts) | 插件入口：配置 schema、提供方注册 |
 | [`src/run.ts`](src/run.ts) | SDK query 生命周期、结果接受与权限处理 |
 | [`src/process.ts`](src/process.ts) | dispose（资源释放）时的 managed-range 逐级终止 |
+| [`src/llm.ts`](src/llm.ts) | Claude 套餐模型路由：适配器、审批转发、套餐计费检查与插件入口 |
+| [`src/llm-turn.ts`](src/llm-turn.ts) | 会话续接规划、SDK 流转换与失败代码 |
 | [`cordis.patch.yml`](cordis.patch.yml) | 注册提供方并添加预设委派工具的 Profile 配置层 |
 
 ### 运行流程
@@ -168,6 +189,20 @@ Claude Code 子级会在一个全新的 SDK query 中接收独立文本任务。
 
 启动确认与完成通知仅追加到可复用的父请求前缀之后。通知可能唤醒新轮次，不会改写已有前缀。
 
+### Claude 套餐模型路由
+
+#### 模型看到什么
+
+Claude 收到 Claude Code 自己的系统提示与工具，以及该轮次的用户文本；续接会话时只有新消息，否则更早的用户与助手文本会以对话记录形式发送一次。harness 的系统提示、工具和技能不会发送。
+
+#### Token 影响
+
+每个轮次都会为 Claude Code 的上下文（包括它自己的工具结果）消耗 Claude 套餐用量。harness 记录 Claude Code 为主代理循环报告的用量。
+
+#### KV Cache 影响
+
+Claude Code 在续接的会话中管理自己的提示缓存；harness 侧的历史变化不会影响它。
+
 ## 已知限制与延期工作
 
 <a id="known-limitations-and-deferred-work"></a>
@@ -184,6 +219,8 @@ Claude Code 子级会在一个全新的 SDK query 中接收独立文本任务。
 - **assistant 载荷仅包含最终文本**——失败运行还可公开独立的安全诊断；推理、中间消息、工具通信、用量、stderr 与工作区差异不会进入父 Session。任务身份与终态结果保存在父日志中。
 - **没有可选的共享能力**——对于本提供方，共享服务会拒绝 `agentOptions`、输出 schema、子任务角色设定、工具筛选和 harness 深度强制约束。
 - **可选的墙钟时限，且没有副作用回滚**——未设置 `timeoutMs` 时，长时间运行的工作由调用方取消；设置后到期会以同样方式取消运行，且取消前已更改的文件或外部系统不会恢复原状。
+- **Claude 套餐路由使用 Claude Code 的工具，而不是 harness 的工具**——harness 工具、技能和 harness 系统提示不会到达 Claude，Claude Code 的工具结果留在它自己的会话中而不是 harness 日志中；只记录点名每个工具的推理行。
+- **Claude 套餐路由只发送文本**——图片和文件附件会被替换为一行占位文本。
 
 <a id="dev-note"></a>
 ### 开发备注

@@ -33,6 +33,7 @@ export type { TranscriptViewMode } from '../chat-settings.ts'
 export type { ChatPresentationPolicy } from './presentation-policy.ts'
 export type {
   AssistantActionOwnerProps, ChatFileMentions, ChatNodeHookContext, ChatNodeInjected, ChatNodeOwnerProps,
+  ChatRewindAction, ChatRewindFiles, ChatRewindOutcome, ChatRewindPreview, ChatRewindRestore, ChatRewindSkipped,
   ChatNodeViewProps, ChatScrollPosition, ChatStore, ChatViewInjected, ChatViewSlotProps,
   ChatFlowDataInjected, ChatFlowHookContext, ChatFlowInjected, ChatFlowOwnerProps, ChatFlowSlotProps, UseGroupHeaderAction,
   CommandRowOwnerProps, CommandRowProps, MessageImagesProps, OpenFileOptions, PresentationInjected,

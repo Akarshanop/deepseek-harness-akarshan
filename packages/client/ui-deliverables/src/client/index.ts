@@ -2,8 +2,10 @@
  * Deliverables plugin, browser half: registers the changed-files card and
  * delivery cards into the chat view's turn-tail list, the `changes-review`
  * right-Sidebar tab type that reviews one turn's changed files one comparison
- * at a time, and provides the `chatFileMentions` service that links
- * inline-code mentions of produced or delivered files in the closing prose.
+ * at a time beside the model's judgment and explanation of each, and provides the `chatFileMentions` service that links
+ * inline-code mentions of produced or delivered files in the closing prose,
+ * and provides the `chatRewind` service that puts changed files back when a
+ * prompt is rewound.
  * All policy lives here — the supported mutation calls, mention matching, row
  * cap, and copy — so composing this plugin out of cordis.yml removes every
  * surface; the owning view renders an empty list and inert prose at zero cost.
@@ -21,6 +23,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { changesReviewAddress } from '../changes.ts'
 import { ChangesDiffStore } from './changes-diff.ts'
 import { ChangesExplainStore } from './changes-explain.ts'
+import { ChangesJudgeStore } from './changes-judge.ts'
 import { ChangesSummaryStore } from './changes-summary.ts'
 import { PresentedOpenController } from './present-open.ts'
 import { PresentRow } from './PresentRow.tsx'
@@ -28,6 +31,7 @@ import { DeliverablesTail, type DeliverablesInjected } from './Deliverables.tsx'
 import { ReviewTab, type ReviewInjected } from './ReviewTab.tsx'
 import { CHANGES_REVIEW_ID, changesReviewDefinition } from './review-definition.ts'
 import { createReviewStore } from './review-store.ts'
+import { chatRewindFiles } from './rewind.ts'
 import { en, NS, zh, type DeliverablesKey } from './locales.ts'
 import {
   deliverablesDefinition, presentedForClosing, producedFileMentions, selectProducedFiles,
@@ -52,12 +56,14 @@ export function apply(ctx: ClientContext): void {
   const summaries = new ChangesSummaryStore()
   const diffs = new ChangesDiffStore()
   const explanations = new ChangesExplainStore()
-  ctx.effect(() => () => Promise.all([opener.dispose(), summaries.dispose(), diffs.dispose(), explanations.dispose()]))
+  const judgments = new ChangesJudgeStore()
+  ctx.effect(() => () => Promise.all([opener.dispose(), summaries.dispose(), diffs.dispose(), explanations.dispose(), judgments.dispose()]))
   ctx.on('connection/reset', () => {
     opener.resetHost()
     summaries.reset()
     diffs.reset()
     explanations.reset()
+    judgments.reset()
   })
   ctx.uiConversation.events.register(deliverablesDefinition)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-deliverables: dictionaries')
@@ -93,12 +99,13 @@ export function apply(ctx: ClientContext): void {
       children: { 'deliverables.review.file.actions': { kind: 'list', scope: 'session' } },
       inject: (): ReviewInjected => ({
         hooks: {
-          changesSummary: summaries.state, changesDiff: diffs.state, changesExplain: explanations.state,
+          changesSummary: summaries.state, changesDiff: diffs.state, changesExplain: explanations.state, changesJudge: judgments.state,
           presentedOpen: opener.state, presentedHost: opener.host,
         },
         loadChangesSummary: (sessionId, seq) => summaries.load(sessionId, seq),
         loadChangesDiff: (sessionId, seq, index) => diffs.load(sessionId, seq, index),
         loadChangesExplain: (sessionId, seq, index) => explanations.load(sessionId, seq, index),
+        loadChangesJudge: (sessionId, seq, index) => judgments.load(sessionId, seq, index),
         reloadPresentedHost: () => opener.loadHost(),
         openChanged: (sessionId, seq, index, action, application) => opener.openChanged(sessionId, seq, index, action, application),
       }),
@@ -118,4 +125,6 @@ export function apply(ctx: ClientContext): void {
     },
   }
   ctx.provide('chatFileMentions', mentions)
+  // The files side of Chat's prompt rewind; without this plugin Chat cannot rewind.
+  ctx.provide('chatRewind', chatRewindFiles)
 }

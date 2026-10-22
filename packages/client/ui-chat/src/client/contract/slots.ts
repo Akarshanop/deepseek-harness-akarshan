@@ -136,11 +136,103 @@ export interface ChatFileMentions {
   forClosing(owner: TurnTailOwnerProps, sessionId: SessionId): MarkdownFileMentions | undefined
 }
 
+/** What rewinding a Session to the start of one turn would do. */
+export interface ChatRewindPreview {
+  /** The last event the rewound conversation keeps, or null when the turn has no earlier cut point. */
+  atSeq: number | null
+  /** Whether a turn of the Session is running; nothing is rewound while it runs. */
+  running: boolean
+  /** Display paths of the files the rewind would put back. */
+  files: string[]
+  /** Display paths of changed files whose earlier content was not kept. */
+  oversized: string[]
+  /** True when some of the turns being undone ran unrecorded, so their file changes stay. */
+  incomplete: boolean
+  /** True when some of the turns being undone ran without a git snapshot, so their shell-command edits stay. */
+  shellUntracked: boolean
+}
+
+/** A file a rewind left as it is. */
+export interface ChatRewindSkipped {
+  display: string
+  reason: 'oversized' | 'submodule' | 'failed'
+}
+
+/** The settled file restore of a rewind. */
+export type ChatRewindRestore =
+  | { kind: 'restored'; skipped: ChatRewindSkipped[] }
+  /** A turn started meanwhile; nothing was put back. */
+  | { kind: 'running' }
+
+/** Optional provider of the files side of a rewind, consumed by Chat; without it Chat offers no rewind. */
+export interface ChatRewindFiles {
+  /**
+   * Read what rewinding to the start of one turn would do.
+   * @param sessionId - the Session to rewind.
+   * @param turn - the first turn whose changes are undone.
+   * @param signal - cancels the read.
+   * @returns the preview.
+   * @throws when the Host cannot answer.
+   */
+  preview(sessionId: SessionId, turn: number, signal: AbortSignal): Promise<ChatRewindPreview>
+  /**
+   * Put back the files the turns from `turn` onward changed.
+   * @param sessionId - the Session to rewind.
+   * @param turn - the first turn whose changes are undone.
+   * @returns the files left as they are, or `running` when a turn started meanwhile.
+   * @throws when the Host cannot answer.
+   */
+  restore(sessionId: SessionId, turn: number): Promise<ChatRewindRestore>
+}
+
+declare module '@deepseek-ai/dsh-api-session-controller/client' {
+  interface SessionReferenceSourceMap {
+    /** Opening a conversation forked by a rewind. */
+    chatRewind: unknown
+  }
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Optional prose file-mention provider. */
     chatFileMentions: ChatFileMentions
+    /** Optional files side of a rewind. */
+    chatRewind: ChatRewindFiles
   }
+}
+
+/** The settled rewind of one user prompt. */
+export type ChatRewindOutcome =
+  /** Files are back and the conversation was forked before the prompt as `sessionId`. */
+  | { kind: 'rewound'; sessionId: SessionId; skipped: ChatRewindSkipped[] }
+  /** A turn started meanwhile; nothing was rewound. */
+  | { kind: 'running' }
+
+/** Rewind face of the viewed Session handed to user-message renderers. */
+export interface ChatRewindAction {
+  /**
+   * Read what rewinding to the start of one turn would do.
+   * @param turn - the turn the prompt opened.
+   * @param signal - cancels the read.
+   * @returns the preview.
+   * @throws when no files provider is composed or the Host cannot answer.
+   */
+  preview(turn: number, signal: AbortSignal): Promise<ChatRewindPreview>
+  /**
+   * Put the files back, then fork the conversation at the preview's cut point.
+   * @param turn - the turn the prompt opened.
+   * @param atSeq - the preview's cut point.
+   * @returns the forked Session and the files left as they are, or `running`.
+   * @throws when the restore or the fork fails.
+   */
+  rewind(turn: number, atSeq: number): Promise<ChatRewindOutcome>
+  /**
+   * Open the forked conversation with a prompt.
+   * @param sessionId - the forked Session.
+   * @param prompt - the prompt text.
+   * @param send - true sends the prompt; false leaves it in the composer.
+   */
+  open(sessionId: SessionId, prompt: string, send: boolean): void
 }
 
 /** Hook constrained to business data published on the current Chat Node's Turn. */
@@ -214,6 +306,8 @@ export interface ChatNodeOwnerProps {
   openFile: (path: string, options?: OpenFileOptions) => void
   inspectCall: ((callId: ToolCallId) => void) | undefined
   forkAt: (seq: number) => void
+  /** Rewind the viewed Session to before one of its prompts. */
+  rewind: ChatRewindAction
   /**
    * Session-authorized image loader, down-threaded from the Chat view so a
    * chat-node renderer can render the attachment presentation slot directly
@@ -308,6 +402,7 @@ export interface ChatViewInjected {
     read: () => ChatScrollPosition | null
   }
   forkAt: (seq: number) => void
+  rewind: ChatRewindAction
   fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined
 }
 
@@ -316,7 +411,7 @@ export type ChatFlowDataInjected = Pick<ChatViewInjected, 'hooks' | 'keyedHooks'
 
 /** Ordered rows and reconciled local echoes rendered inside one Chat viewport. */
 export interface ChatFlowOwnerProps extends Pick<ChatNodeOwnerProps,
-  'cwd' | 'openSkill' | 'openFile' | 'inspectCall' | 'forkAt' | 'loadImage' | 'fileMentions'> {
+  'cwd' | 'openSkill' | 'openFile' | 'inspectCall' | 'forkAt' | 'rewind' | 'loadImage' | 'fileMentions'> {
   readonly entries: readonly RenderEntry[]
   readonly pendingInputs: readonly (PendingSubmission | InboxState['next-step'][number])[]
   readonly lastInputTurn: number | undefined

@@ -1,5 +1,5 @@
 ---
-description: "Web GUI 的改动文件、交付文件与可点击文件引用：已完成轮次末尾的改动文件卡片与交付文件卡片、逐个对比改动文件、并在旁边显示模型所写文件说明的 review tab，以及收尾正文中的行内代码链接；供产出物体验的用户与维护者阅读。"
+description: "Web GUI 的改动文件、交付文件与可点击文件引用：已完成轮次末尾的改动文件卡片与交付文件卡片、逐个对比改动文件、并在旁边显示模型评审与模型所写文件说明的 review tab、评审所依据的代码库文档，以及收尾正文中的行内代码链接；供产出物体验的用户与维护者阅读。"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-本包渲染已完成轮次末尾的改动文件卡片——列出本轮改动的文件及 Host 记录的行数，每一行在该文件上打开本轮的 review tab，并在旁边显示模型撰写的说明——以及显式交付文件的卡片，并把收尾正文中匹配的行内代码引用转为链接，让被点名的文件在右侧 Sidebar 中打开。路径来自记录的改动摘要、成功的文件修改与显式交付，而非收尾正文。只有正式提供的 Web patch 加载本包；删除其 cordis.yml 条目会同时移除指引、卡片、说明与正文链接。
+本包渲染已完成轮次末尾的改动文件卡片——每个文件都会打开本轮的 review tab，旁边显示模型依据项目生成的代码库文档对改动所做的评审，以及对该文件的说明——以及显式交付文件的卡片，并把收尾正文中匹配的行内代码引用转为链接。路径来自记录的改动摘要、成功的文件修改与显式交付，而非收尾正文。只有正式提供的 Web patch 加载本包；删除其 cordis.yml 条目会同时移除指引、卡片、说明、评审、代码库文档与正文链接。
 
 ## 目录
 
@@ -54,7 +54,7 @@ Web 的 `standard`、`ptc` 与 `cordis` preset 提供 `present`，用于声明�
 
 ### 文件说明
 
-review tab 会在所选文件的对比旁显示一段由模型撰写的说明：用一两句话说明该文件在项目中的作用，再用简短列表说明本轮对它做了哪些改动。宽度超过 900 像素的 tab 把说明显示为对比右侧的一列；更窄的 tab 把它堆叠在对比上方。tab 头部的星形按钮按 tab 隐藏或显示说明，新 tab 默认显示。反引号中的名称渲染为代码，文本中的任何内容都不会被当作标记解析。Host 仍在撰写时，面板显示闪烁的占位文字；请求失败时显示“重试”按钮并保留对比。二进制或过大的文件、没有改动行的文件、Host 已不再提供的轮次，以及 `explain.enabled` 为 `false` 的 Host，都不显示面板和按钮。
+review tab 会在所选文件的对比旁显示一段由模型撰写的说明：用一两句话说明该文件在项目中的作用，再用简短列表说明本轮对它做了哪些改动。宽度超过 1,100 像素的 tab 把说明显示为对比右侧的一列，位于[评审](#change-judgments)列之后；更窄的 tab 把两者并排移到对比上方。tab 头部的星形按钮按 tab 隐藏或显示说明，新 tab 默认显示。反引号中的名称渲染为代码，文本中的任何内容都不会被当作标记解析。Host 仍在撰写时，面板显示闪烁的占位文字；请求失败时显示“重试”按钮并保留对比。二进制或过大的文件、没有改动行的文件、Host 已不再提供的轮次，以及 `explain.enabled` 为 `false` 的 Host，都不显示面板和按钮。
 
 Host 不等读者操作就开始撰写。记录某一轮的改动时，它会启动前 `explain.eagerFiles` 个文件；其他文件在其 tab 请求时才开始，对正在撰写中的文件发出的请求会等待同一次撰写。每个不同的对比只发出一次请求，因此用同样的改动再次记录的轮次会复用说明。说明与它所描述的摘要一样，只在该 Host 进程中随 Session 存活，所以 Host 重启后重新打开的对话，其更早的轮次没有说明。每次请求发往 Session 当前的 provider 与模型；若同时设置了 `explain.provider` 和 `explain.model`，则发往这一对，并使用该路由支持的最低推理强度。请求携带该文件的对比；对于该轮前后都存在的文件，还携带文件当前内容的前 `explain.contextLines` 行。该请求独立于对话：不会进入 Session 日志或模型的历史。
 
@@ -81,6 +81,51 @@ Host 不等读者操作就开始撰写。记录某一轮的改动时，它会启
 | `explain.language` | `English` | 说明使用的语言 |
 | `explain.provider`、`explain.model` | 未设置 | 显式路由；必须同时设置或同时不设置。不设置时由 Session 当前的路由回答 |
 
+### 代码库文档
+
+每当顶层 Session 在某个项目中打开时，Host 会用模型为该项目的源文件撰写文档，并以镜像目录树的形式写入项目：`codebase_docs/src/app.ts.md` 记录 `src/app.ts`。每份文档先说明文件的作用，然后为每个函数、类、方法、类型、常量、路由或命令各写一个条目，包括其参数、返回值、副作用、错误以及调用方依赖的不变量，最后是文件的依赖和备注。`codebase_docs/INDEX.md` 列出每个已记录的文件及一行摘要，`codebase_docs/.manifest.json` 记录每份文档所依据内容的 SHA-256。后续运行只为哈希变化或尚无文档的文件撰写文档，并把已删除的文件移出索引；每轮结束后，Host 会在评审读取旧文档之后，重新为本轮改动的文件撰写文档。默认情况下该目录带有内容为 `*` 的 `.gitignore`，使文档不进入 git，也不进入各轮的改动摘要。
+
+遍历会跳过名称以点开头的目录、文档目录本身以及 `codebaseDocs.excludeDirectories` 中的每个名称，保留扩展名在列表中且不超过 `codebaseDocs.maxFileBytes` 的文件，并按广度优先的名称顺序在 `codebaseDocs.maxFiles` 个文件处停止。同时设置 `codebaseDocs.provider` 和 `codebaseDocs.model` 时文档在这一路由上撰写，否则使用默认模型；两者都没有给出路由时，项目会在 Session 的第一次模型请求时开始撰写。模型无法记录的文件会写入日志，并在下一次运行时重试。
+
+| 字段 | 默认值 | 含义 |
+|---|---|---|
+| `codebaseDocs.enabled` | `true` | 是否为项目撰写文档；`false` 也会让评审没有文档可读 |
+| `codebaseDocs.directory` | `codebase_docs` | 文档写入的项目目录 |
+| `codebaseDocs.extensions` | 常见源码扩展名 | 视为源文件的扩展名，带前导点 |
+| `codebaseDocs.excludeDirectories` | `node_modules`、`dist`、`build`、`lib`、`out`、`coverage`、`target`、`vendor`、`__pycache__`、`venv`、`bower_components` | 无论出现在何处都跳过的目录名 |
+| `codebaseDocs.maxFiles` | `500` | 每个项目记录的源文件数 |
+| `codebaseDocs.maxFileBytes` | `200000` | 更大的源文件不予记录 |
+| `codebaseDocs.maxFileChars` | `40000` | 一次请求携带的单个文件字符数；更长的文件截断并加标记 |
+| `codebaseDocs.concurrency` | `4` | 所有项目间同时运行的模型请求数 |
+| `codebaseDocs.maxOutputTokens` | `4096` | 一次请求的输出 token 上限 |
+| `codebaseDocs.timeoutMs` | `180000` | 单个文件的请求开始后可用的毫秒数 |
+| `codebaseDocs.language` | `English` | 文档使用的语言 |
+| `codebaseDocs.ignoreInGit` | `true` | 文档目录是否带有内容为 `*` 的 `.gitignore` |
+| `codebaseDocs.provider`、`codebaseDocs.model` | 未设置 | 显式路由；两者同时设置或都不设置。未设置时由默认模型回答 |
+
+<a id="change-judgments"></a>
+### 改动评审
+
+review tab 会在说明左侧的一列中显示 LLM 评审对所选文件改动的结论。评审先阅读项目的代码库文档——索引、改动文件在本轮之前的文档，以及它通过相对 JavaScript、TypeScript 或 Python 导入引用的项目文件的文档——然后阅读开发者本轮的提示、本轮改动的文件列表、对比，以及带行号的文件当前内容。面板显示结论（实现正确、存在疑虑或可能有误）、评审给出的 0 到 100 的置信度（文字与进度条）、一句总结、按严重程度从高到低排列并附行号的问题、每个方面（符合需求、与代码库文档一致、逻辑正确、错误处理与边界情况、安全、测试）的通过、注意、未通过或不适用标记及理由，以及可选的建议。当文件尚无文档，或本轮提示未被该 Host 进程观察到时，面板会说明这一点。盾牌按钮按 tab 隐藏或显示评审；加载、重试与不显示的规则与说明相同，由 `judge.enabled` 控制。
+
+记录某一轮的改动时，Host 启动前 `judge.eagerFiles` 个评审，并通过 `/api/changes.judge` 提供每个评审。评审按轮次与对比保存，只在该 Host 进程中随 Session 存活。每次请求发往 Session 当前的路由；若同时设置了 `judge.provider` 和 `judge.model`，则发往这一对，并使用该路由支持的最低推理强度。代码库文档被移出组合时，评审只依据代码。
+
+| 字段 | 默认值 | 含义 |
+|---|---|---|
+| `judge.enabled` | `true` | 是否撰写评审；`false` 不注册路由 |
+| `judge.eagerFiles` | `20` | 记录某一轮改动时立即开始评审的文件数 |
+| `judge.concurrency` | `2` | 同时运行的模型请求数 |
+| `judge.maxDiffChars` | `24000` | 一次请求携带的对比字符数 |
+| `judge.contextLines` | `400` | 一次请求携带的文件当前内容行数 |
+| `judge.maxDocChars` | `12000` | 改动文件文档的字符数 |
+| `judge.maxRelatedDocs`、`judge.maxRelatedChars` | `4`、`12000` | 携带的被导入文件文档数及其总字符数 |
+| `judge.maxIndexChars` | `8000` | 项目索引的字符数 |
+| `judge.maxRequestChars` | `4000` | 本轮提示的字符数 |
+| `judge.maxOutputTokens` | `4096` | 一次请求的输出 token 上限 |
+| `judge.timeoutMs` | `180000` | 一次评审的请求开始后可用的毫秒数 |
+| `judge.language` | `English` | 评审文字使用的语言 |
+| `judge.provider`、`judge.model` | 未设置 | 显式路由；两者同时设置或都不设置。未设置时由 Session 当前的路由回答 |
+
 ### 行内代码链接
 
 收尾正文链接产出或已交付的路径：行内代码 token 可按精确目标路径、为该目标记录的精确参数，或唯一 basename 解析。所有匹配事实必须指向同一文件；有歧义的参数与 basename 保持不可点击。不使用后缀或当前目录猜测。解析成功的提及保留代码标签，并采用 Markdown 样式表的链接样式，完整路径作为其 `title`。
@@ -93,7 +138,7 @@ Host 不等读者操作就开始撰写。记录某一轮的改动时，它会启
 <details>
 <summary>实现细节——点击展开</summary>
 
-Node 半部注册[模型体验](#model-experience)所述的静态 `ui:deliverable-file-references` 系统提示词段。显式 Markdown 链接使用共享的 [Markdown 渲染器](../ui-primitives/README.zh.md)；行内代码匹配仍仅限产出或交付文件。浏览器半部把组合改动文件卡片与显式交付的包装组件注册进 chat 视图的 `conversation.chat.turnTail` 列表，与其他功能产物并列。`deliverablesDefinition` 把每个轮次最新且通过校验的 `workspace/changes` 宣告的序号折叠进 `DeliverablesTurnData.changes`，卡片按它向 Host 读取摘要并缓存到连接被替换为止，把 `deliverables/presented` 事件折叠为交付，并根据 `write`、`edit` 和有修改作用的 `str_replace_editor` 命令中经过校验的原始参数与结果记录的绝对 `meta.path` 把成功的第一方修改调用折叠为产出路径及精确参数别名；产出路径只供正文提及解析器使用。不带该字段的成功根调用保留历史参数回退；格式错误的相对目标不产生猜测路径。读取、删除、不受支持的工具、格式错误的调用、格式错误的事件和失败结果不贡献任何条目。每一行通过 `ctx.sidebarRight.openResource` 打开 `dsh-resource://changes-review/session/<sessionId>/<seq>/<turn>`，并以文件下标作为 `changes-review` 的导航参数；本包在 `builtin` 档为该模式注册 `changes-review` tab 类型，把其 body 连同一个按 tab 保存选择的独占 store 注册到按键的 `sidebar.right.pane.tab` 座位下，body 通过经过认证的路由把摘要和对比读进连接更换时清空的 store。本包还提供 chat 视图按收尾消息查询的 `chatFileMentions` 服务；把插件组合出去会移除全部表面，视图的空列表以零成本留下。
+Node 半部注册[模型体验](#model-experience)所述的静态 `ui:deliverable-file-references` 系统提示词段。显式 Markdown 链接使用共享的 [Markdown 渲染器](../ui-primitives/README.zh.md)；行内代码匹配仍仅限产出或交付文件。浏览器半部把组合改动文件卡片与显式交付的包装组件注册进 chat 视图的 `conversation.chat.turnTail` 列表，与其他功能产物并列。`deliverablesDefinition` 把每个轮次最新且通过校验的 `workspace/changes` 宣告的序号折叠进 `DeliverablesTurnData.changes`，卡片按它向 Host 读取摘要并缓存到连接被替换为止，把 `deliverables/presented` 事件折叠为交付，并根据 `write`、`edit` 和有修改作用的 `str_replace_editor` 命令中经过校验的原始参数与结果记录的绝对 `meta.path` 把成功的第一方修改调用折叠为产出路径及精确参数别名；产出路径只供正文提及解析器使用。不带该字段的成功根调用保留历史参数回退；格式错误的相对目标不产生猜测路径。读取、删除、不受支持的工具、格式错误的调用、格式错误的事件和失败结果不贡献任何条目。每一行通过 `ctx.sidebarRight.openResource` 打开 `dsh-resource://changes-review/session/<sessionId>/<seq>/<turn>`，并以文件下标作为 `changes-review` 的导航参数；本包在 `builtin` 档为该模式注册 `changes-review` tab 类型，把其 body 连同一个按 tab 保存选择的独占 store 注册到按键的 `sidebar.right.pane.tab` 座位下，body 通过经过认证的路由把摘要和对比读进连接更换时清空的 store。本包还提供 chat 视图按收尾消息查询的 `chatFileMentions` 服务，以及 Chat 提示词回退背后的 `chatRewind` 服务：经过认证的 `/api/changes.rewind` 路由对 GET 返回该轮次之前的对话切点（上一个 `turn/end` 及其后的独立事件）与 `workspaceChanges.rewindPlan`，对 POST 执行 `workspaceChanges.rewind`，并在该 Session 有轮次运行时以 409 拒绝。把插件组合出去会移除全部表面，视图的空列表以零成本留下。
 
 原生打开使用经过认证的 POST，通过当前查看的会话、事件序号和原始文件索引定位声明；review tab 对改动文件的原生打开使用同一组坐标。对声明，Host 读取事件及当前查看的会话 header，将其中的 cwd 传给 `workspaceFiles.stat`，未记录 cwd 时使用部署的工作目录；对改动文件，传的是所提供摘要携带的工作目录。它与侧栏预览使用同一组合文件系统，无需启动 Agent，子会话也适用。原生操作要求规范化的进程路径能从 Host 路径映射回同一进程路径。提供方没有这种映射时返回 422，之后 review tab 隐藏原生打开；Host 上存在同名文件并不足够。同一份桌面可用性配置同时约束信息查询和实际执行。编辑会影响后续打开的内容；删除后返回错误。不创建文件内容副本或附件。插件释放时取消并等待进行中的原生打开请求。
 
@@ -148,6 +193,34 @@ Node 端还围绕 `ChangeExplainer`（`explain.ts`，不持有任何服务）注
 
 不会使主请求失效：该请求从不进入对话。多次说明请求之间的 provider 缓存复用只是顺带发生，因为每次请求在相同指令之后携带的对比都不同。
 
+### 辅助代码库文档请求
+
+#### 模型看到的内容
+
+每个源文件一条 system 指令和一条用户消息。指令要求以配置的语言给出一行 `SUMMARY:` 和若干 Markdown 小节（Purpose、每个符号一个标题的 API、Dependencies、Notes），把预期行为与契约写得足够精确，供之后的评审使用，并要求模型把文件当作数据。用户消息包含文件的项目相对路径及按 `codebaseDocs.maxFileChars` 截断的内容。没有工具，也没有对话历史。
+
+#### Token 影响
+
+每个自文档撰写以来内容有变化的源文件一次请求：项目首次运行最多 `codebaseDocs.maxFiles` 次请求，之后只针对有变化的文件，每轮针对该轮改动的文件。输出受 `codebaseDocs.maxOutputTokens` 限制。不向 agent 历史或 Session 日志添加任何内容。
+
+#### KV Cache 影响
+
+不会使主请求失效。文档请求共享同一条指令，因此 provider 的前缀缓存可以跨文件复用它。
+
+### 辅助评审请求
+
+#### 模型看到的内容
+
+评审模型收到一条 system 指令和一条用户消息。指令让模型以公正的资深工程师身份评审一个文件的改动，列出六个方面，定义结论、严重程度和置信度，禁止执行数据中出现的指令，并要求输出一个 JSON 对象。用户消息依次包含：按 `judge.maxRequestChars` 截断的本轮提示、按 `judge.maxIndexChars` 截断的代码库索引、按 `judge.maxDocChars` 截断的文件旧文档、在 `judge.maxRelatedChars` 以内最多 `judge.maxRelatedDocs` 份被导入文件的文档、本轮改动的文件及其行数、按 `judge.maxDiffChars` 截断的对比，以及文件当前内容中最多 `judge.contextLines` 行带行号的文本。缺失的证据会注明不可用。没有工具，也没有对话历史。
+
+#### Token 影响
+
+每个不同的对比与轮次一次请求：一轮改动了 N 个文本文件时，轮次结束时最多 `min(N, judge.eagerFiles)` 次，另加读者打开的每个其他文件一次。输入受上述字符上限约束，输出受 `judge.maxOutputTokens` 限制。不向 agent 历史或 Session 日志添加任何内容。
+
+#### KV Cache 影响
+
+不会使主请求失效。评审请求共享同一条指令，其余部分因文件而异。
+
 ## 已知限制与延期工作
 
 <a id="known-limitations-and-deferred-work"></a>
@@ -165,6 +238,10 @@ Node 端还围绕 `ChangeExplainer`（`explain.ts`，不持有任何服务）注
 - **说明是模型输出，可能出错**——模型只看到一个文件的对比和文件开头，看不到项目的其余部分或对话，所以所述的文件作用可能是根据路径和可见行做出的猜测。
 - **无人阅读时说明也会消耗 token**——无论是否打开 review tab，每一轮都会启动前 `explain.eagerFiles` 个文件；调低该数量、设为 `0` 或把 `explain.enabled` 设为 `false`，即可用就绪速度换取成本。
 - **说明只在该 Host 进程中随 Session 存活**——与它们所描述的摘要和对比一样，Host 重启会丢弃它们。
+- **代码库文档写入项目内**——它们是 `codebase_docs/` 中任何工具（包括 agent）都能读取的文件；删除该目录会让文档重新撰写，把 `codebaseDocs.enabled` 设为 `false` 即停止撰写。
+- **项目的首次文档运行对每个源文件发出一次请求**——Session 首次在项目中打开时，最多 `codebaseDocs.maxFiles` 次请求会在后台运行；在其完成前做出的评审会注明文件没有文档。
+- **评审是模型输出，可能出错**——评审看到的是文档、一个文件的改动和文件开头，而非整个项目或对话；其置信度是它自己的估计，并非测得的准确率。
+- **评审只能从该 Host 进程得知某轮的提示**——Host 重启前记录的轮次，或恢复的 Session 中更早的轮次，评审时没有需求。
 - **语言由配置决定，而非自动推断**——`explain.language` 适用于每个 Session，而 tab 上的标签跟随界面语言。
 - **工作区外的文件只按绝对路径打开**——记录的路径是记录时的 Host 路径；工作区移动或换一个查看 Session 都无法重新定位它。
 

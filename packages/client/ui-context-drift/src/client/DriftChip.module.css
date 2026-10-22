@@ -1,0 +1,75 @@
+/* Session-header drift meter and its portaled card (menu surface:
+   elevation-prominent). The level class on the trigger comes from
+   DriftCard.module.css and sets --drift-tint. */
+
+.root {
+  display: inline-flex;
+  flex: none;
+}
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.trigger:hover,
+.trigger[aria-expanded='true'] {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.track {
+  position: relative;
+  width: 36px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--dsw-alias-border-l3);
+  overflow: hidden;
+}
+
+.fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  background: var(--drift-tint, var(--dsw-alias-label-tertiary));
+}
+
+.reading {
+  font-weight: 500;
+  color: var(--drift-tint, var(--dsw-alias-label-secondary));
+}
+
+/* The header's inline-size container hides occupant text at narrow widths. */
+@container (max-width: 520px) {
+  .track {
+    display: none;
+  }
+}
+
+.panel {
+  position: fixed;
+  z-index: 1100;
+  box-sizing: border-box;
+  width: min(300px, calc(100vw - 24px));
+  padding: 14px;
+  border: 0;
+  border-radius: var(--dsw-radius-lg);
+  background: var(--dsw-specific-menu);
+  backdrop-filter: var(--dsw-menu-backdrop-filter);
+  --dsw-elevation-stroke-color: var(--dsw-alias-border-l1);
+  box-shadow: var(--dsw-elevation-prominent);
+  cursor: default;
+}

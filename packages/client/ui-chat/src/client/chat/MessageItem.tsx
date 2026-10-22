@@ -8,6 +8,7 @@ import type { ModelRetryNode, TurnErrorNode, UserMessageNode } from '../contract
 import { CompactionItem } from './CompactionItem.tsx'
 import { ContextInjectionRow } from './ContextInjectionRow.tsx'
 import { MessageIconActions } from './MessageIconActions.tsx'
+import { PromptEditor, PromptRewindButtons, RewindDialog } from './PromptRewind.tsx'
 import css from './MessageItem.module.css'
 
 type UserImage = Extract<UserMessageNode['content'][number], { type: 'image' }>
@@ -316,29 +317,74 @@ export function PendingSubmissionBubble({ submission, renderMessageImages, t }: 
   )
 }
 
-/** User and admitted-steering keyed Chat renderer. */
+/**
+ * User and admitted-steering keyed Chat renderer. A user prompt that opened a
+ * turn also offers edit and rewind; both rewind the files and the
+ * conversation to before the prompt after a confirmation.
+ */
 export const UserMessageNodeView = memo(function UserMessageNodeView({
-  node, renderMessageImages, openFile, openSkill, t,
+  node, renderMessageImages, openFile, openSkill, rewind, t,
 }: ChatNodeViewProps<'user' | 'steering'>) {
   const data = node.data
-  return (
-    <UserStyleBubble
-      content={data.content}
-      references={{ openFile, openSkill }}
-      renderMessageImages={renderMessageImages}
-      {...data.referenceLabels === undefined ? {} : { referenceLabels: data.referenceLabels }}
-      {...data.skillNames === undefined ? {} : { skillNames: data.skillNames }}
+  const turn = node.kind === 'user' && (node.location.kind === 'step' || node.location.kind === 'turn')
+    ? node.location.turn.turn
+    : undefined
+  const [editing, setEditing] = useState<string | undefined>(undefined)
+  const [confirming, setConfirming] = useState<{ prompt: string; send: boolean } | undefined>(undefined)
+  const dialog = turn !== undefined && confirming !== undefined && (
+    <RewindDialog
+      turn={turn}
+      prompt={confirming.prompt}
+      send={confirming.send}
+      rewind={rewind}
+      onClose={() => { setConfirming(undefined) }}
       t={t}
-      actions={text => (
-        <MessageIconActions
-          text={text}
-          time={data.time}
-          clock="start"
-          className={css.actions}
+    />
+  )
+  if (editing !== undefined) {
+    return (
+      <div className={css.userRow}>
+        <PromptEditor
+          initial={editing}
+          onCancel={() => { setEditing(undefined) }}
+          onSend={(text) => {
+            setEditing(undefined)
+            setConfirming({ prompt: text, send: true })
+          }}
           t={t}
         />
-      )}
-    />
+        {dialog}
+      </div>
+    )
+  }
+  return (
+    <>
+      <UserStyleBubble
+        content={data.content}
+        references={{ openFile, openSkill }}
+        renderMessageImages={renderMessageImages}
+        {...data.referenceLabels === undefined ? {} : { referenceLabels: data.referenceLabels }}
+        {...data.skillNames === undefined ? {} : { skillNames: data.skillNames }}
+        t={t}
+        actions={text => (
+          <MessageIconActions
+            text={text}
+            time={data.time}
+            clock="start"
+            className={css.actions}
+            extraActions={turn === undefined ? undefined : (
+              <PromptRewindButtons
+                onEdit={() => { setEditing(text) }}
+                onRewind={() => { setConfirming({ prompt: text, send: false }) }}
+                t={t}
+              />
+            )}
+            t={t}
+          />
+        )}
+      />
+      {dialog}
+    </>
   )
 })
 

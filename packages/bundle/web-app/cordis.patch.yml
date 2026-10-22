@@ -102,6 +102,11 @@
     - id: session-stats
       name: '@deepseek-ai/dsh-session-stats'
 
+    # Long-context drift score and compact/new-chat recommendation (the
+    # contextDrift projection key) for the session-header drift meter.
+    - id: context-drift
+      name: '@deepseek-ai/dsh-context-drift'
+
     # Whole-log turn outline for the chat turn rail (the turnOutline
     # projection key): every turn stays navigable before its events page in.
     - id: session-turn-outline
@@ -383,6 +388,11 @@
     # record panels over the session job-output service.
     - id: ui-jobs
       name: '@deepseek-ai/dsh-client-ui-jobs'
+
+    # Context drift: the session-header drift meter with its breakdown card,
+    # and the high-drift compact/new-chat nudge in the composer input dock.
+    - id: ui-context-drift
+      name: '@deepseek-ai/dsh-client-ui-context-drift'
 
     # Task management and Session reminder catalog over the Host Schedule
     # service mounted above.

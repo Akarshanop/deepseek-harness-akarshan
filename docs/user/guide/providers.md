@@ -18,17 +18,21 @@ Choose **Add model provider**. The card opens on **Third-party model provider**:
 
 ## Use Claude or Codex with a plan or an API key
 
-A Claude Pro/Max or ChatGPT plan authorizes Anthropic's and OpenAI's own products, not a third-party model endpoint, so a plan never appears as a model provider here. Choose by what you have:
+A Claude Pro/Max plan authorizes Anthropic's own products, not a third-party model endpoint, so it reaches this app only through Claude Code. A ChatGPT Plus or Pro plan can power OpenAI models here directly through OpenAI's Sign in with ChatGPT. Choose by what you have:
 
 | You have | Use | Usage is billed to |
 |---|---|---|
 | A Claude Console or OpenAI Platform API key | **Add model provider**, then `anthropic` or `openai`; the models appear in the model picker | The API key's account |
-| A Claude Pro/Max plan | **Plugins → Official → Claude Code subagent**; sign in once by running `claude` and using `/login` | Your plan's limits, as Anthropic's current terms set them |
-| A ChatGPT Plus/Pro plan | **Plugins → Official → Codex subagent**; sign in once with `codex login` | Your plan's limits, as OpenAI's current terms set them |
+| A Claude Pro/Max plan | **Plugins → Experimental plugins → More → Claude Code subagent**, then pick **Claude (your Claude plan)** in the model picker; sign in once in Claude Code with `claude auth login --claudeai`. **Settings → Models → Use your Claude plan** shows whether Claude Code is signed in with your plan | Your plan's limits, as Anthropic's current terms set them |
+| A ChatGPT Plus/Pro plan | **Settings → Models → Use your ChatGPT plan → Continue with ChatGPT** (also offered when you pick `openai` under **Add model provider**); the plan's models then appear under `openai` in the model picker | Your plan's limits, shared with your other ChatGPT and Codex use |
 
-The two subagents run the vendor's own product as an unattended agent in the session's workspace. The model you picked calls them as a tool (`subagent_claude_code` or `subagent_codex`) and receives the final answer; they are not model-picker entries because they run their own tool loop. They never ask you for approval: the provider's `permissionMode` decides what they may do. Sign-in happens in the vendor's product and this app never reads or stores those credentials. When the product is signed out or rejects its credentials, the result names an `authentication` failure and the command to run. To bound a run, set `timeoutMs` on the provider.
+**Use your ChatGPT plan** opens OpenAI's sign-in in a new browser tab, where you sign in to ChatGPT and allow DeepSeek Harness to use your plan. The browser must run on the same machine as dsh, because OpenAI returns to `127.0.0.1`. Once signed in, the card adds the `openai` provider if it is missing, shows the account and the models your plan offers, links to [ChatGPT usage settings](https://chatgpt.com/settings/usage), and offers **Sign out**, which also ends the session at OpenAI. The `openai` models then run with the harness's own tools, billed to your plan. An API key saved on the `openai` provider takes precedence over the plan; remove it to use the plan. To disconnect from ChatGPT's side, open ChatGPT Settings → Security and login → Sign in with ChatGPT.
 
-An API key stored for a route is the only credential this app sends to a model endpoint. A Claude subscription token or a ChatGPT access token placed in a key field is refused with `INVALID_CREDENTIAL`.
+Anthropic offers no sign-in that lets another app use a Claude plan directly: its terms forbid third-party apps from offering Claude.ai login or routing requests through Pro or Max credentials, so a Claude plan reaches this app only through Claude Code, signed in by you. Claude Max plans also include monthly API credits for an API key from the linked Claude Console organization; with that key on the `anthropic` provider, Claude models run with the harness's own tools and the credits pay for them.
+
+**Claude (your Claude plan)** runs every chat turn in Claude Code, with Claude Code's own tools in the session's workspace, and continues the same Claude session from turn to turn; Claude's permission prompts appear in the approval panel. The harness's own tools are not available to it. Both bundles also add a delegation tool (`subagent_claude_code` or `subagent_codex`) that any model can call to hand one task to the vendor's product unattended; those delegations never ask you for approval, because the provider's `permissionMode` decides what they may do. Sign-in happens in the vendor's product and this app never reads or stores those credentials. When the product is signed out or rejects its credentials, the result names an `authentication` failure and the command to run. To bound a run, set `timeoutMs` on the provider.
+
+Besides a Sign in with ChatGPT grant on the `openai` provider, an API key stored for a route is the only credential this app sends to a model endpoint. A Claude subscription token or a Codex ChatGPT access token pasted into a key field is refused with `INVALID_CREDENTIAL`.
 
 ## Add a custom model API
 

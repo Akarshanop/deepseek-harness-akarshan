@@ -1,0 +1,49 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/client/ui-context-drift/README.md
+/:
+  en: 8e6a58f73beee174
+  zh: f1ccef680bcd823f
+/deepseek-ai-dsh-client-ui-context-drift:
+  en: 4a95ea07841eaf0c
+  zh: 718662757a3457fb
+/deepseek-ai-dsh-client-ui-context-drift/summary:
+  en: 763bc1deaf5776c7
+  zh: 8dfcdbd4e12acf23
+/deepseek-ai-dsh-client-ui-context-drift/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 9f0336825ccdaacd
+/deepseek-ai-dsh-client-ui-context-drift/use-this-package:
+  en: 694d8bb9c35462a4
+  zh: dcae59530c0b4c6e
+/deepseek-ai-dsh-client-ui-context-drift/use-this-package/composition:
+  en: 1ff253c3946b4ebe
+  zh: 103f66630a01e5f8
+/deepseek-ai-dsh-client-ui-context-drift/use-this-package/what-you-see:
+  en: 44b01b15cda94165
+  zh: dd47dd603deb0215
+/deepseek-ai-dsh-client-ui-context-drift/understand-the-implementation:
+  en: 91a905b0bbad4cc0
+  zh: 3739a6c195fa81b6
+/deepseek-ai-dsh-client-ui-context-drift/understand-the-implementation/source-map:
+  en: fb0f4d2401024357
+  zh: 1dcd18ed55d323a1
+/deepseek-ai-dsh-client-ui-context-drift/understand-the-implementation/session-reference:
+  en: 18c59b27ad6ec7d6
+  zh: 51ac6f9ff896823e
+/deepseek-ai-dsh-client-ui-context-drift/further-exploration:
+  en: 894633fa371d9fd8
+  zh: acac231ea453b321
+/deepseek-ai-dsh-client-ui-context-drift/model-experience:
+  en: 675f68658db8ea50
+  zh: f7aaffb472f3cae2
+/deepseek-ai-dsh-client-ui-context-drift/model-experience/kv-cache-effect:
+  en: 7f2745b39a92ff27
+  zh: 7a54666a94e34922
+/deepseek-ai-dsh-client-ui-context-drift/known-limitations-and-deferred-work:
+  en: 083d123ca08b82ab
+  zh: 4ca904ee895b2fdd
+/deepseek-ai-dsh-client-ui-context-drift/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: 8ec3e73528ddb1a6

@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Install this Profile Bundle when a delegated task should run as a fresh, unattended Claude Code session in the parent workspace. Each run accepts one self-contained text task and returns the final answer or a safe failure diagnostic; reasoning, tool traffic, stderr, usage, and workspace diffs stay out of the parent Session. Native Claude settings and authentication remain authoritative, while Profile configuration selects the model, environment, and `permissionMode`. The platform-pinned runtime starts on demand and never falls back to the host `claude` executable. Choose it when isolation and genuine Claude Code behavior matter more than continuation or prompts.
+Install this Profile Bundle to use Claude Code from the harness in two ways. As a model, **Claude (your Claude plan)** in the model picker runs each chat turn in a resumable Claude Code session signed in with your own Claude Pro or Max login. As a delegate, the `subagent_claude_code` tool runs one self-contained task in a fresh, unattended session and returns only the final answer or a safe diagnostic. Native Claude settings and authentication remain authoritative, and the platform-pinned runtime starts on demand without falling back to the host `claude` executable.
 
 ## Table of Contents
 
@@ -75,6 +75,25 @@ The bundle inserts `tool-subagent-claude-code` as a Host row, so `subagent_claud
 
 The tool returns a child id after accepting the task and sends its result to the parent Agent on completion. Each external activation executes once and accepts no follow-up input or resume.
 
+### Use your Claude plan as a model
+
+The bundle also registers the model route `claude-plan`, shown in the model picker as **Claude (your Claude plan)** with Claude Opus, Sonnet, and Haiku. Selecting one sends each chat turn to an unmodified Claude Code session signed in with your own Claude Pro or Max login, so usage counts against your plan rather than an API account. Sign in once by running `claude` in a terminal and using `/login`; the harness never reads, stores, or forwards that login.
+
+Each answer stores its Claude Code session id as replay state, so the next turn resumes the same Claude session and sends only the new message. A conversation started on another model is sent once as a transcript. Claude Code runs its own tools in the session's working directory. With `permissionMode: ask`, the default, every Claude permission prompt appears in the harness approval panel; `acceptEdits`, `plan`, and `bypassPermissions` pass through to Claude Code. Claude streams its reasoning and answer, and each tool it runs appears as a reasoning line naming the tool.
+
+A run that would bill an API key, because Claude Code reports an `apiKeySource` other than `none`, is refused with `INVALID_CREDENTIAL` unless `allowApiKey` is set. A signed-out Claude fails with `AUTH` and the sign-in instruction, and a reached plan limit fails with `QUOTA`. The route never retries, because a retried turn could repeat actions Claude already took. Session titles and compaction summaries run as single tool-free answers.
+
+Where a web connection serves the Models settings page, the route also answers `GET /api/subagent-claude-code.plan` with Claude Code's own sign-in state ([`src/plan-status.ts`](src/plan-status.ts)): it runs the Agent SDK's platform binary as `claude auth status --json` with the route's environment and reports whether Claude Code is signed in, its `authMethod`, the plan (`subscriptionType`), the account email, whether turns would draw on the plan (`authMethod` is `claude.ai`), and the route's models. The Models page renders this as its **Use your Claude plan** card. Anthropic does not permit a third-party application to offer Claude.ai sign-in or to collect, store, or intermediate Claude credentials, so the route starts no sign-in, reads no token, and reports the command the user runs in Claude Code instead (`claude auth login --claudeai`).
+
+```yaml
+- id: llm-claude-plan
+  config:
+    permissionMode: acceptEdits
+    models:
+      - id: opus
+        name: Claude Opus
+```
+
 ### What you get
 
 The completion notice contains the final Claude Code answer, or the stop reason and optional safe diagnostic. The parent Session also retains the external task identity and complete terminal result independently of the notice; no local child Session is created. Product reasoning, tool activity, raw stderr, and workspace diffs do not enter the parent Session.
@@ -110,6 +129,8 @@ This section explains how the provider drives a real Claude Code CLI and where t
 | [`src/index.ts`](src/index.ts) | Plugin entry: config schema, provider registration |
 | [`src/run.ts`](src/run.ts) | The SDK query lifecycle, result acceptance, and permission handling |
 | [`src/process.ts`](src/process.ts) | Managed-range termination escalation on disposal |
+| [`src/llm.ts`](src/llm.ts) | The Claude-plan model route: adapter, approval relay, plan-billing check, and plugin entry |
+| [`src/llm-turn.ts`](src/llm-turn.ts) | Session resume planning, SDK stream translation, and failure codes |
 | [`cordis.patch.yml`](cordis.patch.yml) | The Profile layer that registers the provider and contributes preset delegation tools |
 
 ### Run flow
@@ -168,6 +189,20 @@ Parent input grows by the start acknowledgement and completion notice, including
 
 Start acknowledgements and completion notices append after the reusable parent request prefix. A notice may wake another turn without rewriting the existing prefix.
 
+### Claude-plan model route
+
+#### What the model sees
+
+Claude receives Claude Code's own system prompt and tools plus the turn's user text; on a resumed session that is only the new message, and otherwise earlier user and assistant text arrives once as a transcript. The harness system prompt, tools, and skills are not sent.
+
+#### Token effect
+
+Each turn consumes Claude plan usage for Claude Code's context, which includes its own tool results. The harness records the usage Claude Code reports for the main agent loop.
+
+#### KV Cache effect
+
+Claude Code manages its own prompt cache inside the resumed session; harness-side history changes do not affect it.
+
 ## Known Limitations and Deferred Work
 
 <a id="known-limitations-and-deferred-work"></a>
@@ -184,6 +219,8 @@ These limits define when this provider is a poor fit or needs special operationa
 - **Assistant payload is final text only** — failed runs can also expose a separate safe diagnostic; reasoning, intermediate messages, tool traffic, usage, stderr, and workspace diffs remain outside the parent Session. Task identity and terminal results are retained in the parent log.
 - **No optional shared capabilities** — `agentOptions`, output schemas, child personas, tool filtering, and harness depth enforcement are rejected by the shared service for this provider.
 - **Optional wall-clock limit and no side-effect rollback** — without `timeoutMs` the caller cancels long work; with it, expiry cancels the run the same way, and files or external systems changed before cancellation are not restored.
+- **The Claude-plan route uses Claude Code's tools, not the harness's** — harness tools, skills, and the harness system prompt do not reach Claude, and Claude Code's tool results stay in its own session rather than the harness log; only reasoning lines naming each tool are recorded.
+- **The Claude-plan route sends text only** — image and file attachments are replaced by a placeholder line.
 
 <a id="dev-note"></a>
 ### Dev Note

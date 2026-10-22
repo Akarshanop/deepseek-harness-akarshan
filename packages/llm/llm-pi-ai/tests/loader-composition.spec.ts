@@ -1,5 +1,6 @@
 /** Profile patch edits and credential updates reach the next real adapter request. */
 
+import { generateKeyPairSync, sign as signData } from 'node:crypto'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,6 +12,7 @@ import Include from '@deepseek-ai/cordis-plugin-include'
 import LlmRuntime, { createMessage, createUserMessage, userAgent } from '@deepseek-ai/dsh-llm'
 import AuthorizationService from '@deepseek-ai/dsh-authorization'
 import LocalCredentialProvider from '@deepseek-ai/dsh-credentials-local'
+import { credentialKey } from '@deepseek-ai/dsh-credentials'
 import { profileComposition } from '../../../settings/settings/tests/profile-composition.ts'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { assemble } from './assemble.ts'
@@ -35,6 +37,7 @@ afterEach(async () => {
   root = undefined
   await closeMockServers()
   vi.unstubAllEnvs()
+  vi.unstubAllGlobals()
 })
 
 /** Boot the dormant composition: a bare `llm-pi-ai` row with no config at all. */
@@ -114,18 +117,127 @@ describe('llm-pi-ai real dormant composition', () => {
     expect(server.headers[0]?.authorization).toBe('Bearer key-from-store')
   })
 
-  it('offers Claude and OpenAI sign-in by API key only, and no Codex sign-in', async () => {
+  it('offers OpenAI Sign in with ChatGPT, Claude sign-in by API key only, and no Codex sign-in', async () => {
     const { ctx } = await loadComposition()
     const methods = (provider: string): string[] | undefined => ctx.authorization.list()
       .find(entry => entry.key === LlmPiAi.recordKeyFor(provider))?.methods.map(method => method.id)
 
-    // pi-ai's Sign in with ChatGPT needs an installation ID the harness does
-    // not supply, so the route offers only its key login.
-    expect(methods('openai')).toEqual(['api-key'])
+    // OpenAI's Sign in with ChatGPT for open-source apps runs under this app's
+    // own registration, beside the key login.
+    expect(methods('openai')).toEqual(['oauth', 'api-key'])
     // Claude Pro/Max and ChatGPT Codex sign-ins authorize the vendors' own
     // clients; a third-party application may not collect them.
     expect(methods('anthropic')).toEqual(['api-key'])
     expect(methods('openai-codex')).toBeUndefined()
+  })
+
+  it('signs in with ChatGPT through the real authorization flow and stores a grant pi-ai can use', async () => {
+    const { ctx } = await loadComposition()
+    const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
+    const jwk = { ...publicKey.export({ format: 'jwk' }), kid: 'k1', alg: 'RS256', use: 'sig' }
+    const encode = (value: object): string => Buffer.from(JSON.stringify(value)).toString('base64url')
+    let nonce = ''
+    const realFetch = globalThis.fetch
+    const tokenForms: URLSearchParams[] = []
+    vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : input.toString()
+      if (url.startsWith('http://127.0.0.1')) return await realFetch(input, init)
+      if (url === 'https://auth.openai.com/api/accounts/oauth/token') {
+        tokenForms.push(init?.body instanceof URLSearchParams ? init.body : new URLSearchParams())
+        const claims = { iss: 'https://auth.openai.com', aud: 'oaiapp_flow', sub: 'subject-1', email: 'me@example.com', nonce, exp: Math.floor(Date.now() / 1000) + 600 }
+        const input = `${encode({ alg: 'RS256', kid: 'k1' })}.${encode(claims)}`
+        const idToken = `${input}.${signData('RSA-SHA256', Buffer.from(input), privateKey).toString('base64url')}`
+        return Response.json({
+          access_token: 'flow-access', refresh_token: 'flow-refresh', id_token: idToken, token_type: 'Bearer', expires_in: 3600,
+          scope: 'chatgpt.tokens.use.direct email offline_access openid profile resource.invoke',
+        })
+      }
+      if (url === 'https://auth.openai.com/.well-known/jwks.json') return Response.json({ keys: [jwk] })
+      if (url === 'https://api.openai.com/v1/models') return Response.json({ models: [{ slug: 'gpt-6.1-sol', visibility: 'list' }] })
+      throw new Error(`unexpected request ${url}`)
+    })
+    const callbacks: Promise<Response>[] = []
+    const outcome = await ctx.authorization.begin({
+      key: LlmPiAi.recordKeyFor('openai'),
+      method: 'oauth',
+      interaction: {
+        notify: (notice) => {
+          if (notice.url === undefined) return
+          const authorize = new URL(notice.url)
+          nonce = authorize.searchParams.get('nonce') ?? ''
+          const callback = new URL(authorize.searchParams.get('redirect_uri') ?? '')
+          callback.searchParams.set('code', 'flow-code')
+          callback.searchParams.set('state', authorize.searchParams.get('state') ?? '')
+          callback.searchParams.set('client_id', 'oaiapp_flow')
+          callbacks.push(realFetch(callback))
+        },
+        prompt: () => Promise.reject(new Error('the flow asked a question')),
+      },
+    })
+
+    expect(outcome).toEqual({ status: 'authorized' })
+    expect((await Promise.all(callbacks)).map(response => response.status)).toEqual([200])
+    expect(tokenForms[0]?.get('client_id')).toBe('oaiapp_flow')
+    const stored = await ctx.credentials.readRecord(LlmPiAi.recordKeyFor('openai'))
+    expect(stored).toMatchObject({ kind: 'grant', payload: { type: 'oauth', access: 'flow-access', refresh: 'flow-refresh', clientId: 'oaiapp_flow' } })
+    const registration = await ctx.credentials.readRecord(credentialKey('llm-pi-ai', 'openai-chatgpt-registration'))
+    expect(registration).toMatchObject({
+      kind: 'grant',
+      payload: { clientId: 'oaiapp_flow', subject: 'subject-1', email: 'me@example.com', planModels: ['gpt-6.1-sol'] },
+    })
+  })
+
+  it('serves the openai route from a stored Sign in with ChatGPT grant, narrowed to the plan models', async () => {
+    const { ctx, settingsPath } = await loadComposition()
+    // A completed sign-in leaves the grant and this host's registration behind.
+    await ctx.credentials.modifyRecord(LlmPiAi.recordKeyFor('openai'), () => Promise.resolve({
+      kind: 'grant',
+      payload: {
+        type: 'oauth',
+        access: 'chatgpt-access',
+        refresh: 'chatgpt-refresh',
+        expires: Date.now() + 3_600_000,
+        clientId: 'oaiapp_test',
+        scopes: ['chatgpt.tokens.use.direct', 'email', 'offline_access', 'openid', 'profile', 'resource.invoke'],
+      },
+    }))
+    await ctx.credentials.modifyRecord(credentialKey('llm-pi-ai', 'openai-chatgpt-registration'), () => Promise.resolve({
+      kind: 'grant',
+      payload: { hostId: 'urn:uuid:11111111-2222-4333-8444-555555555555', clientId: 'oaiapp_test', planModels: ['gpt-6.1-sol', 'gpt-6-luna'] },
+    }))
+    const requests: { url: string; authorization: string | null; body: Record<string, unknown> }[] = []
+    vi.stubGlobal('fetch', (input: string | URL | Request, init?: RequestInit) => {
+      const request = new Request(input, init)
+      return request.json().then((body: Record<string, unknown>) => {
+        requests.push({ url: request.url, authorization: request.headers.get('authorization'), body })
+        const sse = completedResponseEvents('plan answer').map(event => `event: ${String(event.type)}\ndata: ${JSON.stringify(event)}\n\n`).join('')
+        return new Response(sse, { headers: { 'content-type': 'text/event-stream' } })
+      })
+    })
+
+    // Adding the route without an API key is what the Models page's ChatGPT card writes.
+    await writeFile(settingsPath, ['- id: llm-pi-ai', '  config:', '    providers:', '      openai: {}', ''].join('\n'))
+    await vi.waitFor(() => {
+      expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['openai'])
+    }, { timeout: 5000 })
+
+    expect((await ctx.llm.listModels('openai')).map(model => model.id)).toEqual(['gpt-6-luna', 'gpt-6.1-sol'])
+    const result = await assemble(ctx, {
+      provider: 'openai',
+      model: 'gpt-6.1-sol',
+      maxTokens: 1000,
+      temperature: 0.5,
+      messages: [createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })],
+    })
+    expect(result.finish).toEqual({ kind: 'stop' })
+    expect(result.message.content).toEqual([{ type: 'text', text: 'plan answer' }])
+    const [request] = requests
+    expect(request?.url).toBe('https://api.openai.com/v1/responses')
+    expect(request?.authorization).toBe('Bearer chatgpt-access')
+    // The plan route rejects these fields, so a ChatGPT credential never sends them.
+    expect(request?.body).toMatchObject({ model: 'gpt-6.1-sol', store: false, stream: true })
+    expect(request?.body).not.toHaveProperty('max_output_tokens')
+    expect(request?.body).not.toHaveProperty('temperature')
   })
 
   it('uses settings-only route headers for model discovery', async () => {
@@ -286,3 +398,34 @@ describe('llm-pi-ai real dormant composition', () => {
     })
   })
 })
+
+/** The Responses stream of one completed text answer. */
+function completedResponseEvents(text: string): Record<string, unknown>[] {
+  const part = { type: 'output_text', annotations: [], logprobs: [], text }
+  const message = { id: 'msg_1', type: 'message', status: 'completed', role: 'assistant', content: [part] }
+  const response = {
+    id: 'resp_1',
+    object: 'response',
+    created_at: 1,
+    status: 'completed',
+    model: 'gpt-6.1-sol',
+    output: [message],
+    usage: {
+      input_tokens: 5,
+      input_tokens_details: { cached_tokens: 0 },
+      output_tokens: 2,
+      output_tokens_details: { reasoning_tokens: 0 },
+      total_tokens: 7,
+    },
+  }
+  return [
+    { type: 'response.created', response: { ...response, status: 'in_progress', output: [] } },
+    { type: 'response.output_item.added', output_index: 0, item: { ...message, status: 'in_progress', content: [] } },
+    { type: 'response.content_part.added', item_id: 'msg_1', output_index: 0, content_index: 0, part: { ...part, text: '' } },
+    { type: 'response.output_text.delta', item_id: 'msg_1', output_index: 0, content_index: 0, delta: text, logprobs: [] },
+    { type: 'response.output_text.done', item_id: 'msg_1', output_index: 0, content_index: 0, text, logprobs: [] },
+    { type: 'response.content_part.done', item_id: 'msg_1', output_index: 0, content_index: 0, part },
+    { type: 'response.output_item.done', output_index: 0, item: message },
+    { type: 'response.completed', response },
+  ]
+}
